@@ -2,7 +2,7 @@
 
 This package provides adaptors that allow cPanel’s Web App Hub API
 (and thus any consumers-MCP, UI, CLI, etc) to manage web apps
-implemented in whatever language and framework we wanr to support.
+implemented in whatever language and framework we want to support.
 
 ## Extending
 
