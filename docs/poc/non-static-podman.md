@@ -145,8 +145,10 @@ ea-podman install pocnode \
   npm start
 ```
 
-- `--cpuser-port=3000` asks the port authority to publish container port `3000`
-  to an allocated, firewalled host port.
+- `--cpuser-port=<container-port>` is set to the port the server listens on
+  **inside** the container (here, the value of `PORT`). The port authority then
+  publishes it to an allocated, firewalled host port — that assigned host port,
+  not this value, is what Apache proxies to.
 - `-e "PORT=3000"` matches the env var the server reads.
 - `-v "$HOME/nodeapp:/app:ro"` mounts the app **read-only**.
 - `-w /app` sets the working directory.
