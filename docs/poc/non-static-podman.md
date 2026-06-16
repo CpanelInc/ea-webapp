@@ -138,7 +138,7 @@ export PATH="/opt/cpanel/ea-podman/bin:/usr/local/cpanel/scripts:$PATH"
 ea-podman install pocnode \
   --cpuser-port=3000 \
   -e "PORT=3000" \
-  -v "$HOME/ea-podman.d/<container_name>/nodeapp:/app:ro" \
+  -v "$HOME/ea-podman.d/<container_name>/nodeapp:/app:rw" \
   -w /app \
   --i-understand-the-risks-do-it-anyway \
   docker.io/library/node:20-alpine \
@@ -150,7 +150,10 @@ ea-podman install pocnode \
   publishes it to an allocated, firewalled host port — that assigned host port,
   not this value, is what Apache proxies to.
 - `-e "PORT=3000"` matches the env var the server reads.
-- `-v "<container-dir>/nodeapp:/app:ro"` bind-mounts the app **read-only**. The
+- `-v "<container-dir>/nodeapp:/app:rw"` bind-mounts the app **read-write** so
+  the container can build, write logs, accept file uploads, and otherwise modify
+  files under `/app` (use `:ro` only if the app is fully self-contained and never
+  needs to write). The
   source **must live inside the per-container directory `ea-podman` creates** for
   this container — `~/ea-podman.d/<container_name>/` (e.g.
   `~/ea-podman.d/pocnode.cptest1.01/`). That directory is the container's managed
