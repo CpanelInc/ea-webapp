@@ -138,7 +138,7 @@ export PATH="/opt/cpanel/ea-podman/bin:/usr/local/cpanel/scripts:$PATH"
 ea-podman install pocnode \
   --cpuser-port=3000 \
   -e "PORT=3000" \
-  -v "$HOME/nodeapp:/app:ro" \
+  -v "$HOME/ea-podman.d/<container_name>/nodeapp:/app:ro" \
   -w /app \
   --i-understand-the-risks-do-it-anyway \
   docker.io/library/node:20-alpine \
@@ -150,8 +150,16 @@ ea-podman install pocnode \
   publishes it to an allocated, firewalled host port — that assigned host port,
   not this value, is what Apache proxies to.
 - `-e "PORT=3000"` matches the env var the server reads.
-- `-v "$HOME/nodeapp:/app:ro"` mounts the app **read-only**.
-- `-w /app` sets the working directory.
+- `-v "<container-dir>/nodeapp:/app:ro"` bind-mounts the app **read-only**. The
+  source **must live inside the per-container directory `ea-podman` creates** for
+  this container — `~/ea-podman.d/<container_name>/` (e.g.
+  `~/ea-podman.d/pocnode.cptest1.01/`). That directory is the container's managed
+  home: it is what `ea-podman` backs up and carries across upgrades, so app files
+  kept anywhere else fall outside the container's lifecycle. Note the ordering —
+  `ea-podman` only creates and names that directory (with the `.NN` suffix)
+  during `install`, so stage the app files into it as part of standing the
+  container up rather than mounting from an arbitrary `$HOME` path.
+- `-w /app` sets the working directory inside the container.
 - `--i-understand-the-risks-do-it-anyway` is required because
   `node:20-alpine` is an arbitrary image.
 - `npm start` is the entry point — here it launches the persistent server.
