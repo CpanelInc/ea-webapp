@@ -312,7 +312,9 @@ podman ps -a --format '{{.Names}} {{.Status}}'   # shows "Exited (0)"
 Verify the build output (owned by the cPanel user):
 
 ```bash
-ls -l ~/public_html/app             # index.html, main.js, style.css owned by cptest1
+ls -l ~/public_html/app             # build output index.html, main.js, style.css
+                                    # (owned by cptest1, alongside cPanel defaults
+                                    #  cgi-bin/, php.ini, .htaccess)
 podman logs pocstatic.cptest1.01    # shows npm install + tsc output from the build
 ```
 
@@ -324,20 +326,24 @@ it. There is **no userdata reverse-proxy include and no `rebuildhttpdconf`**.
 
 ### Step 6 — Verify HTTPS end to end
 
-Ensure a certificate exists, then fetch the page:
+AutoSSL normally provisions the certificate automatically. To force a check, run
+it **as root** — `autossl_check` is a server-admin command, not a cPanel-user one
+(it is not runnable from the user's SSH session above):
 
 ```bash
+# as root, not the cPanel user
 /usr/local/cpanel/bin/autossl_check --user=cptest1
+```
+
+Then fetch the page over HTTPS (from anywhere that resolves the domain):
+
+```bash
 curl -sk https://app.example.com/
+curl -skI https://app.example.com/main.js   # 200, Content-Type: text/javascript
 ```
 
 Expected response: the built `index.html` (the "Dynamic static site, built from
-TypeScript" page). It references the compiled script, which is served as a static
-asset:
-
-```bash
-curl -skI https://app.example.com/main.js   # 200, Content-Type: text/javascript
-```
+TypeScript" page), which references the compiled `main.js`.
 
 The clock, counter, and theme toggle are wired up inside `main.js` and run
 **client-side** in the visitor's browser — no server process sits behind the
