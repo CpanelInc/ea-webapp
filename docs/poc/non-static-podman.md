@@ -135,6 +135,9 @@ server.listen(port, "0.0.0.0", () => {
 ```bash
 export PATH="/opt/cpanel/ea-podman/bin:/usr/local/cpanel/scripts:$PATH"
 
+# --cpuser-port is the port INSIDE the container (3000 here), NOT the public port.
+# The cPanel port authority assigns the public host port, e.g.
+#   1.2.3.4:12345 ➜ container:3000
 ea-podman install pocnode \
   --cpuser-port=3000 \
   -e "PORT=3000" \
