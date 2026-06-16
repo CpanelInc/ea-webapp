@@ -10,19 +10,6 @@ identical; the meaningful difference is the container entry point: instead of
 running a one-shot build and exiting, the entry point launches a persistent
 HTTP server that listens on a published port for the life of the container.
 
-## Scope and decisions
-
-- **Subdomain → container wiring:** Apache reverse proxy via a **root-owned
-  Apache userdata include** + `rebuildhttpdconf` (Option A). This matches the
-  intended productization path. The `.htaccess [P]` approach is intentionally
-  **not** documented here.
-- **Networking:** **single-container loopback proxy only.** The container
-  publishes one host port on `127.0.0.1`; Apache proxies to it. `--pod` /
-  custom-network topologies (ZC-9688) are **out of scope**.
-- **Authoritative source:** validated against the `ea-podman` source
-  (`SOURCES/ea-podman.pl`, `SOURCES/util.pm`) in
-  `github.com/CpanelInc/ea-podman`.
-
 ## What ea-podman does — and what it does not
 
 `ea-podman`'s responsibility **ends** at:
