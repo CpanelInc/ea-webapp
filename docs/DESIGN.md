@@ -1,3 +1,81 @@
 # Web App Hub
 
-… WiP …
+## This Document
+
+This document is not a design doc in the traditional sense. It's more like the base principles and requirements to base implementation on. In other words, if all of these things are met we have succeeded.
+
+## The Feature
+
+This feature is intended to improve the experience of deploying web apps from any source but especially AI-generated apps and AI-based deployment.
+
+## Background
+
+This document is distilled from https://webpros.atlassian.net/wiki/spaces/ZC/pages/6692208704/AI+friendly+Web+App+Hub+Technical
+
+… which is distilled from the TI’s epic’s descriptions and various discussions
+
+… which is distilled from https://webpros.atlassian.net/wiki/spaces/PROD/pages/6644629597 and https://webpros.atlassian.net/browse/TI-205
+
+## App Types
+
+Most AI apps are Node.js-based, so we are starting with NodeJS support.
+
+We should be able to support any language/framework. All languages/frameworks are supported via [Adaptors](#adaptors) and should require no changes to the [API](#api). e.g. If an API change is required to add support for a new thing we have failed.
+
+## API
+
+This should cover all necessary tasks in web app lifecycle and management.
+
+The API MUST have no App Type specific knowledge and MUST do no App Type specific logic.
+
+Instead it will consume [App Type adaptors](#adaptors) and then, based on the adaptor/limits/input/etc, call [`ea-podman`](#ea-podman) appropriately.
+
+## MCP
+
+The [API](#api) is the contract; any MCP or [UI](#ui) is a client of it. WebPros Dashboard MCP (any MCP really) will consume the API’s openapi spec files to be able to operate on a user’s web apps.
+
+## UI
+
+UIs, just like MCPs, will consume the [API](#api). First implementing in `meridian` then later `jupiter`.
+
+## Mixpanel
+
+* Our [UIs](#ui) will do mixpanel
+* Our [MCP](#mcp) will do mixpanel
+* Our [API](#api) will not do mixpanel
+  * doing so would result in duplicates
+  * results would be inaccurate when caller fails to pass correct info
+* We don’t/can’t track 3rdparty usage in mixpanel
+
+## Limits
+
+User should not be able to change these.
+
+**Cascading resource limits** (CPU and Memory per [App Type](#app-types)). Each level defaults to the next one up, so the effective value resolves in this precedence: **App → User → Global → [Adaptor](#adaptors) default**. A more specific level overrides the broader one and may set any value, higher or lower.
+
+1. **Adaptor** default CPU and Memory per [App Type](#app-types)
+1. **Global** default CPU and Memory per [App Type](#app-types) for this server
+1. **User** default CPU and Memory per [App Type](#app-types)
+1. **App** CPU and Memory of a specific _instance_
+
+**Standalone limits** (set at a single level, no cascade).
+
+1. **Global** Web App Hub feature on or off
+1. **Global** [App Types](#app-types) allowed
+1. **User** How many of each [App Type](#app-types) a user is allowed
+
+## Misc
+
+### General flow
+
+… TODO …
+
+### `ea-podman`
+
+Other things were evaluated and are problematic for one reason or another.
+
+See https://webpros.atlassian.net/wiki/spaces/ZC/pages/6692208704/AI+friendly+Web+App+Hub+Technical#podman for the benefits of this approach.
+
+### Adaptors
+
+… TODO …
