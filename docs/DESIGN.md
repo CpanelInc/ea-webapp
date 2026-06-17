@@ -20,19 +20,19 @@ This document is distilled from https://webpros.atlassian.net/wiki/spaces/ZC/pag
 
 Most AI apps are Node.js-based, so we are starting with NodeJS support.
 
-We should be able to support any language/framework. All languages/frameworks are supported via [Adaptors](#adaptors) and should require no changes to the [API](#api). e.g. If an API change is required to add support for a new thing we have failed.
+We should be able to support any language/framework. All languages/frameworks are supported via [Adaptors](#adaptors) and should require no changes to the [API](#api). e.g. If an [API](#api) change is required to add support for a new thing we have failed.
 
 ## API
 
 This should cover all necessary tasks in web app lifecycle and management.
 
-The API MUST have no App Type specific knowledge and MUST do no App Type specific logic.
+The API MUST have no [App Type](#app-types) specific knowledge and MUST do no [App Type](#app-types) specific logic.
 
 Instead it will consume [App Type adaptors](#adaptors) and then, based on the adaptor/limits/input/etc, call [`ea-podman`](#ea-podman) appropriately.
 
 ## MCP
 
-The [API](#api) is the contract; any MCP or [UI](#ui) is a client of it. WebPros Dashboard MCP (any MCP really) will consume the API’s openapi spec files to be able to operate on a user’s web apps.
+The [API](#api) is the contract; any MCP or [UI](#ui) is a client of it. WebPros Dashboard MCP (any MCP really) will consume the [API](#api)’s openapi spec files to be able to operate on a user’s web apps.
 
 ## UI
 
@@ -53,7 +53,7 @@ User should not be able to change these.
 
 **Cascading resource limits** (CPU and Memory per [App Type](#app-types)). Each level defaults to the next one up, so the effective value resolves in this precedence: **App → User → Global → [Adaptor](#adaptors) default**. A more specific level overrides the broader one and may set any value, higher or lower.
 
-1. **Adaptor** default CPU and Memory per [App Type](#app-types)
+1. **[Adaptor](#adaptors)** default CPU and Memory per [App Type](#app-types)
 1. **Global** default CPU and Memory per [App Type](#app-types) for this server
 1. **User** default CPU and Memory per [App Type](#app-types)
 1. **App** CPU and Memory of a specific _instance_
@@ -90,7 +90,7 @@ See https://webpros.atlassian.net/wiki/spaces/ZC/pages/6692208704/AI+friendly+We
 
 ### Adaptors
 
-An “adaptor” is what will contain all data and logic about languages and their frameworks that we need to inform the API so that it can operate on an app of a given language/framework.
+An “adaptor” is what will contain all data and logic about languages and their frameworks that we need to inform the [API](#api) so that it can operate on an app of a given language/framework.
 
 The exact structure will materialize as the feature progresses.
 
@@ -101,9 +101,9 @@ They will definitely include:
 3. Detection logic
 4. Determining exact commands to run for the task at hand, like build and start
 
-**They must be separate from API code/files**.
+**They must be separate from [API](#api) code/files**.
 
-So separate that they could be managed in their own package without needing to update the API. Doing them in a separate package, while not required, would make that separation clearer, easier to preserve, and facilitate more rapid maintenance like any upstream-based EA4 pkg (after initial release the API will rarely update but the adaptors will regularly change). If we want to do that initially or sometime later we will use `ea-web-app-hub`.
+So separate that they could be managed in their own package without needing to update the [API](#api). Doing them in a separate package, while not required, would make that separation clearer, easier to preserve, and facilitate more rapid maintenance like any upstream-based EA4 pkg (after initial release the [API](#api) will rarely update but the adaptors will regularly change). If we want to do that initially or sometime later we will use `ea-web-app-hub`.
 
 **They must be extendable by 3rd parties and admins**.
 
