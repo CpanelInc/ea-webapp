@@ -110,6 +110,9 @@ This is very simple, see https://webpros.atlassian.net/wiki/spaces/ZC/pages/6691
 ### Out of scope for July 2026 release
 
 - WHM UI
+- Jupiter UI
+- dormant behavior (podman’s pause/unpause)
+- staging apps
 - Backup hooks/transfers
 - Mass upgrade management for admin or user (there is `ea-podman upgrade --all`)
-- Application Manager deprecation or app migration
+- Application Manager deprecation or app migration:
