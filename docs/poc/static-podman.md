@@ -68,9 +68,11 @@ ssh cptest1@SERVER_IP
 ```
 
 Connect with **direct SSH** so you land in a **real bash** session. Do **not**
-use `su -` or `jailshell` — rootless podman breaks without the per-user DBus
-session, `XDG_RUNTIME_DIR`, and linger that a real login sets up (see the
-overview for detail).
+use `su -` or `jailshell` — rootless podman does not get a usable session that
+way. (Per the `ea-podman` maintainers this is a known, solvable limitation that
+will be addressed for the shipped feature; for the PoC just connect directly —
+see the overview.) A build-only container does not need linger: it runs once and
+exits.
 
 ### Step 1 — Create the subdomain
 
@@ -269,21 +271,26 @@ ea-podman install pocstatic \
 - `--i-understand-the-risks-do-it-anyway` is required because `node:20-alpine`
   is an arbitrary (non-vetted) image.
 
-> **The image must be the *last* argument.** `ea-podman install` for an arbitrary
-> image requires the final argument to be the image name and rejects anything
-> after it (`util.pm` `validate_start_args`: *"Last start arg does not look like
-> an image name"*). You therefore **cannot** append a command such as
-> `… node:20-alpine npm run build` — the install aborts. Supply the build command
-> via podman's `--entrypoint` in **JSON form** (which carries its own arguments)
-> *before* the image, as above.
+> **Why `--entrypoint` instead of a trailing command.** `ea-podman install`
+> requires the **last** argument to look like an image name (`util.pm`
+> `validate_start_args`). A single bare-word command would be accepted after the
+> image, but our build is a *chained, multi-word* command
+> (`npm install && npm run build`); written as `… node:20-alpine sh -c "npm …"` its
+> last argument is the quoted multi-word string, which fails that check and aborts
+> the install. Passing the command via podman's `--entrypoint` in **JSON form**
+> (which carries its own arguments) with the image last avoids the problem. See the
+> [ea-podman overview](./ea-podman.md#running-an-arbitrary-image) for the full rule.
 
 > **`ea-podman` is built for long-running services, not one-off builds.** Its
 > generated user systemd unit runs `podman start` on the container, so the build
-> **re-runs whenever the service starts** — including on reboot (linger is
-> enabled). For an idempotent build that simply rewrites the output this is
-> harmless, but be aware of it. (`ea-podman` also emits a *"DEPRECATED command"*
-> warning from `podman generate systemd`; this is internal to `ea-podman` and
-> does not affect the build.)
+> **re-runs whenever that unit (re)starts** — e.g. each time you log in, since an
+> SSH session starts the user's enabled units (observed: the build container comes
+> back up on a new login). It will only re-run at *boot* if you separately enable
+> linger, which `ea-podman` does not do here (see the overview). For an idempotent
+> build that just rewrites the output this is harmless, but be aware of it.
+> (`ea-podman` also emits a *"DEPRECATED command"* warning from
+> `podman generate systemd`; this is internal to `ea-podman` and does not affect
+> the build.)
 
 > **Run the build as container root (do not pass `--user`).** Rootless podman
 > maps container-root to the cPanel user's **real UID** on the host, so the
@@ -412,22 +419,10 @@ images, and least-privilege mounts/capabilities — is covered in the
 
 ## What productization needs
 
-This PoC stitches the steps together by hand. A shipped static-app path would
-need:
-
-- **A real build sandbox** (epic CPANEL-53922 §13.6): ephemeral per build, with
-  CPU/memory/wall-clock/disk caps, outbound network restricted to package
-  registries, isolated from other tenants, immutable artifact promotion, and
-  **discard-on-failure** so a failed build leaves the previously served output
-  untouched.
-- **Managed source/output placement.** Generate and own the build input and the
-  document-root output programmatically, rather than relying on hand-placed
-  directories.
-- **Runtime-as-data handlers.** Describe each static toolchain (Vite, Next
-  export, etc.) as data with a build command and output directory, rather than
-  bespoke per-app commands.
-- **Structured errors.** Return machine-readable failure categories
-  (`framework_detection_failed`, `build_failed`, …) so the UI/orchestration can
-  react meaningfully.
-- **Cleanup hooks.** On subdomain/account removal, tear down the container, its
-  systemd unit, and the served output automatically.
+The PoC stitches the steps by hand. The main gap a shipped static-app path must
+close is a **real build sandbox** (epic CPANEL-53922 §13.6): ephemeral per build,
+resource-capped, with outbound network restricted to package registries, isolated
+from other tenants, and **discard-on-failure** so a failed build leaves the live
+output untouched. Beyond that, it would manage source/output placement and
+teardown (the container, its systemd unit, and the served output) automatically
+rather than by hand.
