@@ -66,9 +66,19 @@ User should not be able to change these.
 
 ## Misc
 
-### General flow
+### General Flow
 
-… TODO …
+1. Install (`ea-podman install …`)
+   1. get a zip file or git repo
+   2. detect which [App Type](#app-types) it is, using [Adaptors](#adaptors)
+   3. configure it based on [Adaptors](#adaptors) and input
+   4. deploy it to a subdomain
+2. Lifecycle management
+   1. Config updating
+   2. Service state/control
+   3. Update git (git pull)/container (`ea-podman upgrade …`)
+3. Uninstall (`ea-podman uninstall …`)
+   * Should cleanup subdomain and web server config and anything else outside of ea-podman.
 
 ### `ea-podman`
 
@@ -79,3 +89,10 @@ See https://webpros.atlassian.net/wiki/spaces/ZC/pages/6692208704/AI+friendly+We
 ### Adaptors
 
 … TODO …
+
+### Out of scope for July 2026 release
+
+- WHM UI
+- Backup hooks/transfers
+- Mass upgrade management for admin or user (there is `ea-podman upgrade --all`)
+- Application Manager deprecation or app migration
