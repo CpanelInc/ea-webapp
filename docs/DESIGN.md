@@ -80,6 +80,8 @@ User should not be able to change these.
 3. Uninstall (`ea-podman uninstall …`)
    * Should cleanup subdomain and web server config and anything else outside of ea-podman.
 
+Each app should have a slug, either given or derived from the zip or git name. That slug is used in the podman name (pod name and directory), the subdomain, and anywhere else we need to refer to it. Because the slug must be a valid subdomain label, its format is constrained to lowercase alphanumerics and hyphens — which also makes it path-safe for use in directory names.
+
 ### `ea-podman`
 
 Other things were evaluated and are problematic for one reason or another.
