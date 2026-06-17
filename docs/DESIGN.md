@@ -88,7 +88,24 @@ See https://webpros.atlassian.net/wiki/spaces/ZC/pages/6692208704/AI+friendly+We
 
 ### Adaptors
 
-… TODO …
+An “adaptor” is what will contain all data and logic about languages and their frameworks that we need to inform the API so that it can operate on an app of a given language/framework.
+
+The exact structure will materialize as the feature progresses.
+
+They will definitely include:
+
+1. What images/tags we support
+2. What default CPU and memory limits should be
+3. Detection logic
+4. Determining exact commands to run for the task at hand, like build and start
+
+**They must be separate from API code/files**.
+
+So separate that they could be managed in their own package without needing to update the API. Doing them in a separate package, while not required, would make that separation clearer, easier to preserve, and facilitate more rapid maintenance like any upstream-based EA4 pkg (after initial release the API will rarely update but the adaptors will regularly change). If we want to do that initially or sometime later we will use `ea-web-app-hub`.
+
+**They must be extendable by 3rd parties and admins**.
+
+This is very simple, see https://webpros.atlassian.net/wiki/spaces/ZC/pages/6691619038/Settings+Config#3rdparty for more)
 
 ### Out of scope for July 2026 release
 
