@@ -4,6 +4,8 @@
 
 This document is not a design doc in the traditional sense. It's more like the base principles and requirements to base implementation on. In other words, if all of these things are met we have succeeded.
 
+As such, it is intentionally light on implementation detail.
+
 ## The Feature
 
 This feature is intended to improve the experience of deploying web apps from any source but especially AI-generated apps and AI-based deployment.
