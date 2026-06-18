@@ -41,11 +41,14 @@ subdomain.
 - **`systemd`** present (user-level units are used to supervise the container).
 - **`subuid` / `subgid`** ranges for the cPanel user (required for rootless
   podman user-namespace mapping). You do **not** allocate these by hand —
-  `ea-podman`'s `ensure_user` step writes them to `/etc/subuid` and
-  `/etc/subgid` on the user's first `ea-podman` command (verified:
-  `cptest1:589825:65536` appeared after the first `install`).
+  `ea-podman`'s `ensure_user` writes them to `/etc/subuid` and `/etc/subgid`.
+  Provision them explicitly with `ea-podman subids --ensure` **before** the
+  first `podman` command (see Step 3); any `ea-podman` subcommand also triggers
+  this, but a raw `podman build`/`run` does **not** (verified:
+  `<account>:589825:65536` appeared after `subids --ensure`).
 - A **real bash login shell** for the cPanel user (not `jailshell`/noshell) —
-  see the SSH gotcha below.
+  granted with `whmapi1 modifyacct user=<account> shell=/bin/bash` (see Step 0
+  and the SSH gotcha below).
 - **Lingering** enabled for the user so user services survive logout/reboot.
   Do not assume `ea-podman` does this for you — see Step 4. (`ea-podman` only
   calls `loginctl enable-linger` when `XDG_RUNTIME_DIR` is unset, which is
@@ -94,10 +97,26 @@ one — including an image you build locally — requires the explicit
 
 ## Procedure
 
-### Step 0 — Connect via direct SSH as the cPanel user
+### Step 0 — Server-side prep (as root) and connect as the cPanel user
+
+First, give the account a real (unrestricted) bash login shell — applied as
+root via the WHM API (`whmapi1`). `jailshell`/`noshell` will not work for
+rootless podman, and you need this before you can SSH in below:
 
 ```bash
-ssh cptest1@SERVER_IP
+# Equivalent to WHM » Manage Shell Access.
+whmapi1 modifyacct user=<account> shell=/bin/bash
+```
+
+> `modifyacct` requires the caller to hold the `allow-shell` ACL, and the server
+> must permit shell access at all (WHM's "Shell Fork Bomb Protection" /
+> account-can-have-shell setting) or the call dies with
+> `This server cannot give shell access.`
+
+Then connect as the cPanel user:
+
+```bash
+ssh <account>@SERVER_IP
 ```
 
 Connect with **direct SSH** so you land in a **real bash** session.
@@ -110,11 +129,16 @@ Connect with **direct SSH** so you land in a **real bash** session.
 
 ### Step 1 — Create the subdomain
 
+`rootdomain` must be a domain the account **already owns** — substitute the
+account's own domain for `<account-domain>` below (list it with
+`uapi DomainInfo list_domains`). Building on a domain the account does not own
+fails with `The domain “<account-domain>” does not belong to “<account>”.`
+
 ```bash
-uapi SubDomain addsubdomain domain=app rootdomain=example.com dir=public_html/app
+uapi SubDomain addsubdomain domain=app rootdomain=<account-domain> dir=public_html/app
 ```
 
-This creates `app.example.com`. `ea-podman` will **not** do this for you.
+This creates `app.<account-domain>`. `ea-podman` will **not** do this for you.
 
 ### Step 2 — Create the non-static Node.js app and a Containerfile
 
@@ -178,22 +202,50 @@ CMD ["npm", "start"]
 
 ### Step 3 — Build the image and run it via ea-podman
 
-Build the image **as the cPanel user** (rootless build — this is also why the
-app directory must be writable; a read-only layout cannot be built), then
-install it. The image is the **last argument** and there is **no trailing
-command** — the server starts from the image's `CMD`:
+Do everything here **as the cPanel user** (rootless build — this is also why the
+app directory must be writable; a read-only layout cannot be built). **Order
+matters:** the rootless build needs the user's `subuid`/`subgid` ranges to exist
+*before* the first `podman` command, or it fails unpacking the base image
+(`lchown … invalid argument`). `ea-podman` provisions those ranges but does
+**not** do so as a side effect of `podman` — so provision them first:
 
 ```bash
 export PATH="/opt/cpanel/ea-podman/bin:/usr/local/cpanel/scripts:$PATH"
 
+# 1. Provision (and display) the user's subuid/subgid ranges before any podman
+#    command. This is what makes the rootless build work.
+ea-podman subids --ensure
+grep "^$(whoami):" /etc/subuid /etc/subgid    # expect e.g. <account>:589825:65536
+
+# 2. Build the image. It must be the LAST argument to install, with NO trailing
+#    command — the server starts from the image's CMD.
 cd ~/nodeapp
 podman build -t localhost/pocnode:1 .
 
+# 3. Confirm the image is in THIS user's local store (so install does not try to
+#    "pull" localhost/… from a registry).
+podman images localhost/pocnode
+
+# 4. Install.
 ea-podman install pocnode \
   --cpuser-port=3000 \
   --i-understand-the-risks-do-it-anyway \
   localhost/pocnode:1
 ```
+
+> **Recovery — `lchown … invalid argument` on build.** If you ran `podman`
+> *before* the subuid ranges existed, podman initialized your storage in
+> single-mapping mode and won't pick up the ranges added afterward. Run
+> `podman system migrate` to re-read `/etc/subuid` / `/etc/subgid`, then rebuild.
+> If stale storage persists, `podman system reset` (destructive — wipes this
+> user's images/containers) then rebuild. In a clean run (ranges provisioned
+> first), neither is needed — `ea-podman` itself never calls `migrate`.
+
+> **`install` tries to "pull" `localhost/…` and fails on TLS.** That means the
+> image isn't in the user's local store — `ea-podman install` runs
+> `podman create`, which pulls only when the image is *missing*, and parses
+> `localhost/…` as a registry. Re-check step 2/3: the build must have completed
+> **as this same user**, and `podman images` must list it.
 
 - `--cpuser-port=3000` is the port the server listens on **inside** the
   container. `ea-podman` calls the port authority for you and publishes the
@@ -208,7 +260,7 @@ ea-podman install pocnode \
 If the app needs **writable persistent storage** at runtime (uploads, a build
 cache, logs), bind-mount a subdirectory of the per-container managed directory
 `ea-podman` creates during install — `~/ea-podman.d/<container_name>/` (e.g.
-`~/ea-podman.d/pocnode.cptest1.01/`) — using `:rw`. That directory is the
+`~/ea-podman.d/pocnode.<account>.01/`) — using `:rw`. That directory is the
 container's managed home (what `ea-podman` backs up and carries across
 upgrades). Because the `.NN`-suffixed directory name only exists *after*
 `install`, the practical sequence is: install once to learn the container name,
@@ -225,7 +277,7 @@ podman ps --format '{{.Names}} {{.Ports}}'
 The `podman ps` output shows the published mapping, for example:
 
 ```
-pocnode.cptest1.01  0.0.0.0:10001->3000/tcp
+pocnode.<account>.01  0.0.0.0:10001->3000/tcp
 ```
 
 Confirm the server answers on the host port (here `10001`):
@@ -241,8 +293,8 @@ appear to "randomly" stop. Enabling linger requires root:
 
 ```bash
 # as root:
-loginctl enable-linger cptest1
-loginctl show-user cptest1 | grep Linger    # expect Linger=yes
+loginctl enable-linger <account>
+loginctl show-user <account> | grep Linger    # expect Linger=yes
 ```
 
 Then confirm supervision (as the user):
@@ -253,11 +305,12 @@ systemctl --user status 'container-pocnode*'   # user unit is enabled + active
 
 ### Step 5 — Wire the subdomain to the container (Option A, as root)
 
-`ea-podman` gave you a host port; now connect `app.example.com` to it. Create a
-**root-owned Apache userdata reverse-proxy include** for **both** the SSL
-(`2_4`) and non-SSL vhost paths.
+`ea-podman` gave you a host port; now connect `app.<account-domain>` (the
+subdomain created in Step 1) to it. Create a **root-owned Apache userdata
+reverse-proxy include** for **both** the SSL (`2_4`) and non-SSL vhost paths.
+Substitute the account's own domain for `<account-domain>` below.
 
-SSL path — `/etc/apache2/conf.d/userdata/ssl/2_4/cptest1/app.example.com/podman-poc.conf`:
+SSL path — `/etc/apache2/conf.d/userdata/ssl/2_4/<account>/app.<account-domain>/podman-poc.conf`:
 
 ```apache
 ProxyPreserveHost On
@@ -268,16 +321,17 @@ RequestHeader set X-Forwarded-Proto "https"
 
 Create the equivalent non-SSL include under the standard (non-`ssl`) userdata
 path as well:
-`/etc/apache2/conf.d/userdata/std/2_4/cptest1/app.example.com/podman-poc.conf`
+`/etc/apache2/conf.d/userdata/std/2_4/<account>/app.<account-domain>/podman-poc.conf`
 (use the same body; you may keep `X-Forwarded-Proto "http"` there, or drop the
 header on the non-SSL path).
 
-> Replace `10001` with the actual host port from Step 4.
+> Replace `10001` with the actual host port from Step 4, and `<account-domain>`
+> with the account's domain from Step 1.
 
 Apply the includes and rebuild Apache:
 
 ```bash
-/usr/local/cpanel/scripts/ensure_vhost_includes --user=cptest1
+/usr/local/cpanel/scripts/ensure_vhost_includes --user=<account>
 /usr/local/cpanel/scripts/rebuildhttpdconf
 /scripts/restartsrv_httpd
 ```
@@ -285,8 +339,8 @@ Apply the includes and rebuild Apache:
 ### Step 6 — Verify HTTPS end to end
 
 ```bash
-/usr/local/cpanel/bin/autossl_check --user=cptest1
-curl -sk https://app.example.com/poc-path
+/usr/local/cpanel/bin/autossl_check --user=<account>
+curl -sk https://app.<account-domain>/poc-path
 ```
 
 Expected response:
@@ -300,16 +354,16 @@ Hello from non-static Node PoC! You requested: /poc-path
 Manage the container lifecycle with `ea-podman`:
 
 ```bash
-ea-podman restart pocnode.cptest1.01
-ea-podman stop    pocnode.cptest1.01
-ea-podman uninstall pocnode.cptest1.01
+ea-podman restart pocnode.<account>.01
+ea-podman stop    pocnode.<account>.01
+ea-podman uninstall pocnode.<account>.01
 ```
 
 To **detach** the subdomain, remove the Apache include(s) and rebuild:
 
 ```bash
-rm /etc/apache2/conf.d/userdata/ssl/2_4/cptest1/app.example.com/podman-poc.conf
-rm /etc/apache2/conf.d/userdata/std/2_4/cptest1/app.example.com/podman-poc.conf
+rm /etc/apache2/conf.d/userdata/ssl/2_4/<account>/app.<account-domain>/podman-poc.conf
+rm /etc/apache2/conf.d/userdata/std/2_4/<account>/app.<account-domain>/podman-poc.conf
 /usr/local/cpanel/scripts/rebuildhttpdconf
 /scripts/restartsrv_httpd
 ```
