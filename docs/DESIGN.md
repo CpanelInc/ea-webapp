@@ -59,6 +59,8 @@ UIs, just like MCPs, will consume the [API](#api). First implementing in `meridi
 
 User should not be able to change these.
 
+> **Note — these limits govern what our system does on a user’s behalf.** They’re the values the [API](#api)/[UI](#ui)/[MCP](#mcp) apply when deploying and managing an app through Web App Hub. A user with normal shell access still has ordinary container operability outside of that — they can run an arbitrary image or container directly, just as they can today, and those aren’t bound by Web App Hub’s limits. That’s expected container behavior, not a gap in this design; we’re noting it so the scope of the limits is clear. (And it may not even arise for WebPros Dashboard users if they can’t log into their cPanel account as a normal user.)
+
 **Cascading resource limits** (CPU and Memory per [App Type](#app-types)). Each level defaults to the next one up, so the effective value resolves in this precedence: **App → User → Global → [Adaptor](#adaptors) default**. A more specific level overrides the broader one and may set any value, higher or lower.
 
 1. **[Adaptor](#adaptors)** default CPU and Memory per [App Type](#app-types)
@@ -77,6 +79,17 @@ User should not be able to change these.
 An app is **always deployed to a subdomain** whose label is the app’s [slug](#general-flow). A file URI / subdirectory on an existing domain is **YAGNI** — we’re not building it.
 
 A new subdomain gets SSL the usual way and time frame. The open question is **SSL timing**: a user shouldn’t create an app, open its URL, and get a certificate error while AutoSSL catches up — a cert needs to be in place before the app is presented as ready. A **temporary domain** is also an option (works out of the box) and an acceptable fallback if prompt SSL proves too difficult for the initial release.
+
+## Images
+
+Apps run from container images, and the [Adaptors](#adaptors) declare which images/tags each [App Type](#app-types) supports.
+
+**The plan for the initial release is to pull those images directly from Docker Hub** — the standard registry, no extra infrastructure. Recording it here so it’s an explicit decision.
+
+A mirror is a possible future enhancement, not a requirement: we could host one ourselves, or provide instructions for admins to stand up and configure their own. Two related decisions are worth settling early because of lead time / API shape:
+
+* **A WebPros-hosted mirror** would need to be requested early — it has provisioning lead time rather than being a last-minute add.
+* **Using Docker Hub credentials** (e.g. for higher pull rate limits) would need to be supported by the [API](#api), so it’s best decided before the API contract solidifies.
 
 ## Databases
 
