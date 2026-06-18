@@ -108,6 +108,10 @@ Each app should have a slug, either given or derived from the zip or git name. T
 
 Each app will log to `~/logs/webapps/SLUG.log`. `podman` can do this (and rotate them in real time) using the example flags in [the podman wiki article](https://webpros.atlassian.net/wiki/spaces/ZC/pages/6692208704/AI+friendly+Web+App+Hub+Technical#podman).
 
+### Streaming Output
+
+Long-running [API](#api) actions (build, deploy, etc.) and app logs need to stream output to the caller so an [MCP](#mcp) can follow progress and debug problems. The live experience for [UIs](#ui) is part of the UI epic; for the [API](#api) we should be able to stream via the existing generic SSE API (run a command, then tail its output), with a web-app-specific endpoint as an option if that proves insufficient.
+
 ### `ea-podman`
 
 Other things were evaluated and are problematic for one reason or another.
