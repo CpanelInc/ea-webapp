@@ -18,6 +18,8 @@ This document is distilled from https://webpros.atlassian.net/wiki/spaces/ZC/pag
 
 … which is distilled from https://webpros.atlassian.net/wiki/spaces/PROD/pages/6644629597 and https://webpros.atlassian.net/browse/TI-205
 
+There is also this phase 1 prioritization document: https://webpros.atlassian.net/wiki/spaces/PROD/pages/6688145414/Phase+1+Feature+Prioritization+Launch+Blockers+vs+Fast+Follow
+
 ## App Types
 
 Most AI apps are Node.js-based, so we are starting with NodeJS support.
