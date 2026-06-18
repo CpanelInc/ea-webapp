@@ -76,7 +76,7 @@ User should not be able to change these.
 
 ## Domains
 
-An app is **always deployed to a subdomain** whose label is the app’s [slug](#general-flow). A file URI / subdirectory on an existing domain is **YAGNI** — we’re not building it.
+An app is **always deployed to a subdomain** whose label is the app’s [slug](#general-flow). A file URI / subdirectory on an existing domain is **YAGNI**.
 
 A new subdomain gets SSL the usual way and time frame. The open question is **SSL timing**: a user shouldn’t create an app, open its URL, and get a certificate error while AutoSSL catches up — a cert needs to be in place before the app is presented as ready. A **temporary domain** is also an option (works out of the box) and an acceptable fallback if prompt SSL proves too difficult for the initial release.
 
