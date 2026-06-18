@@ -38,6 +38,8 @@ Instead it will consume [App Type adaptors](#adaptors) and then, based on the ad
 
 The [API](#api) is the contract; any MCP or [UI](#ui) is a client of it. WebPros Dashboard MCP (any MCP really) will consume the [API](#api)’s openapi spec files to be able to operate on a user’s web apps.
 
+**The MCP server itself, and the auth/token system that lets it talk to the cPanel API, are out of scope here.** That auth layer is being built separately by 3 dedicated TIs and is a hard prerequisite for any MCP↔cPanel interaction. Our responsibility ends at the [API](#api) contract.
+
 ## UI
 
 UIs, just like MCPs, will consume the [API](#api). First implementing in `meridian` then later `jupiter`.
