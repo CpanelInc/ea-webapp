@@ -143,5 +143,6 @@ This is very simple, see https://webpros.atlassian.net/wiki/spaces/ZC/pages/6691
 - staging apps
 - Backup hooks/transfers
 - Mass upgrade management for admin or user (there is `ea-podman upgrade --all`)
+- Private git repo SSH key management (phase 2 — not July). Initial release supports public repos (and zip uploads); secure storage/handling of deploy keys for private repos comes later.
 - Databases (see [Databases](#databases)) — DB wizard is a fast follow
 - Application Manager deprecation or app migration:
