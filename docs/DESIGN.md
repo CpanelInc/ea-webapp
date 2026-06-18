@@ -84,6 +84,10 @@ Databases are **out of scope for the July 2026 release** (the DB wizard is a fas
 * Most likely we use the existing cPanel database API and follow the database limits it already imposes.
 * The app and its database must be tied together so neither gets orphaned.
 
+## Errors
+
+The [API](#api) must return **machine-readable errors** — structured output with stable error identifiers plus human-readable detail, not just free-form text — so a consumer such as an [MCP](#mcp) can reliably detect what went wrong and self-correct (e.g. a limit was hit, or a build failed for a specific reason) without scraping prose.
+
 ## Misc
 
 ### General Flow
