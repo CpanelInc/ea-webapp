@@ -76,6 +76,14 @@ An app is **always deployed to a subdomain** whose label is the app’s [slug](#
 
 A new subdomain gets SSL the usual way and time frame. The open question is **SSL timing**: a user shouldn’t create an app, open its URL, and get a certificate error while AutoSSL catches up — a cert needs to be in place before the app is presented as ready. A **temporary domain** is also an option (works out of the box) and an acceptable fallback if prompt SSL proves too difficult for the initial release.
 
+## Databases
+
+Databases are **out of scope for the July 2026 release** (the DB wizard is a fast follow, so there’s time to settle the details). When we do build it, the principles are:
+
+* The app’s [slug](#general-flow) is king — if we create a database, we name it from the slug.
+* Most likely we use the existing cPanel database API and follow the database limits it already imposes.
+* The app and its database must be tied together so neither gets orphaned.
+
 ## Misc
 
 ### General Flow
@@ -131,4 +139,5 @@ This is very simple, see https://webpros.atlassian.net/wiki/spaces/ZC/pages/6691
 - staging apps
 - Backup hooks/transfers
 - Mass upgrade management for admin or user (there is `ea-podman upgrade --all`)
+- Databases (see [Databases](#databases)) — DB wizard is a fast follow
 - Application Manager deprecation or app migration:
