@@ -2,7 +2,7 @@
 
 ## This Document
 
-This document is not a design doc in the traditional sense. It's more like the base principles and requirements to base implementation on. In other words, if all of these things are met we have succeeded.
+This document is not a design doc in the traditional sense. It’s more like the base principles and requirements to base implementation on. In other words, if all of these things are met we have succeeded.
 
 As such, it is intentionally light on implementation detail.
 
