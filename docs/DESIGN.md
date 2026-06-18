@@ -34,7 +34,7 @@ The API MUST have no [App Type](#app-types) specific knowledge and MUST do no [A
 
 Instead it will consume [App Type adaptors](#adaptors) and then, based on the adaptor/limits/input/etc, call [`ea-podman`](#ea-podman) appropriately.
 
-For example, a “get available” call would return a subset of [Adaptor](#adaptors) data filtered through the applicable [limits](#limits): first the server settings for which [App Types](#app-types) are enabled at all (e.g. Node.js yes, Python no, PSGI yes), then the user’s settings on top of that (e.g. Node.js 0, PSGI 2). It would also include the user’s current calculated limits and usage — e.g. for Node.js: the user has 1, is limited to 2, and the current Node.js resource limits are ….
+For example, a “get available” call would return a subset of [Adaptor](#adaptors) data filtered through the applicable [limits](#limits): first the server settings for which [App Types](#app-types) are enabled at all (e.g. Node.js yes, Python no, PSGI yes), then the user’s usage on top of that (e.g. Node.js 0, PSGI 2). It would also include the user’s current calculated limits and usage — e.g. for Node.js: the user has 1, is limited to 2, and the current Node.js resource limits are ….
 
 ## MCP
 
