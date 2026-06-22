@@ -86,10 +86,10 @@ Apps run from container images, and the [Adaptors](#adaptors) declare which imag
 
 **The plan for the initial release is to pull those images directly from Docker Hub** — the standard registry, no extra infrastructure. Recording it here so it’s an explicit decision.
 
-A mirror is a possible future enhancement, not a requirement: we could host one ourselves, or provide instructions for admins to stand up and configure their own. Two related decisions are worth settling early because of lead time / API shape:
+A mirror is a possible future enhancement, not a requirement. These are things we could do now, later, or never:
 
-* **A WebPros-hosted mirror** would need to be requested early — it has provisioning lead time rather than being a last-minute add.
-* **Using Docker Hub credentials** (e.g. for higher pull rate limits) would need to be supported by the [API](#api), so it’s best decided before the API contract solidifies.
+* **Helping users help themselves** is an easy win that would buy us time — and it’s basically documentation (maybe a script or two, but probably not). That covers setting up Docker Hub credentials (e.g. for higher pull rate limits), other setting optimizations, and configuring their own mirror.
+* **A WebPros-hosted mirror** doesn’t require new infrastructure. It should be a matter of grabbing the images we need, building the metadata, and publishing on httpupdate — just a scheduled pipeline script.
 
 ## Databases
 
