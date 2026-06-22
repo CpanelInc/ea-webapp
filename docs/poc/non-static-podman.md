@@ -39,6 +39,18 @@ subdomain.
 - Apache modules enabled: **`mod_proxy`, `mod_proxy_http`, `mod_rewrite`,
   `mod_headers`.**
 - **`systemd`** present (user-level units are used to supervise the container).
+- **Unprivileged user namespaces enabled** (`user.max_user_namespaces > 0`).
+  Rootless podman maps the subuid/subgid ranges through a user namespace, so
+  this must be non-zero or every `ea-podman` command fails up front with
+  `❌ User Namespaces not available`. Stock EL9 ships with a large default, but
+  hardened images sometimes zero it out. Enable and persist it as root:
+
+  ```bash
+  sysctl user.max_user_namespaces            # 0 or empty = disabled
+  sysctl -w user.max_user_namespaces=15000   # enable now
+  echo 'user.max_user_namespaces = 15000' > /etc/sysctl.d/99-rootless-podman.conf
+  sysctl --system                            # persist across reboots
+  ```
 - **`subuid` / `subgid`** ranges for the cPanel user (required for rootless
   podman user-namespace mapping). You do **not** allocate these by hand —
   `ea-podman`'s `ensure_user` writes them to `/etc/subuid` and `/etc/subgid`.
@@ -155,6 +167,13 @@ server binds `0.0.0.0` on `process.env.PORT || 3000` and stays up.
 > `util.pm` `install`, which does `pop @real_start_args` to grab the image.)
 > The reliable pattern is therefore to **bake the entry point into the image's
 > `CMD`** and pass no trailing command.
+
+Create the app directory first (as the cPanel user), then add the three files
+below:
+
+```bash
+mkdir ~/nodeapp
+```
 
 `~/nodeapp/server.js`:
 
