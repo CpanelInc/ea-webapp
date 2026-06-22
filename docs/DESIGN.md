@@ -76,7 +76,20 @@ User should not be able to change these.
 
 ## Domains
 
-An app is **always deployed to a subdomain** whose label is the app’s [slug](#general-flow). A file URI / subdirectory on an existing domain is **YAGNI**.
+An app can be deployed to any of three locations:
+
+* `<SLUG>.<DOMAIN>` — a subdomain whose label is the app’s [slug](#general-flow). **Preferred/default.**
+* `<DOMAIN>/<URI>` — a subdirectory of an existing domain.
+* `<DOMAIN>` — the root of an existing domain.
+
+In every case the target must be free to be used by the app:
+
+* **If the location is not already a Web App Hub app** it may have existing content (e.g. the document root or subdirectory already serves something), so we **warn** that deploying the app will take over that location and any content there.
+* **If the location is already a Web App Hub app**, it is **unavailable** — another app can’t be deployed over it.
+
+For anything other than a fresh `<SLUG>.<DOMAIN>`, that warning is paired with an **“I understand” checkbox**, surfaced as an explicit API parameter the caller must set to confirm it’s OK to use the existing location. The [API](#api) refuses the deploy unless that parameter is present.
+
+There’s also existing custom config to consider: on a domain already in use, other config (rewrites, handlers, etc.) may take precedence and result in the app not being served. That’s another reason a fresh, unused `<SLUG>.<DOMAIN>` is the ideal target.
 
 A new subdomain gets SSL the usual way and time frame. The open question is **SSL timing**: a user shouldn’t create an app, open its URL, and get a certificate error while AutoSSL catches up — a cert needs to be in place before the app is presented as ready. A **temporary domain** is also an option (works out of the box) and an acceptable fallback if prompt SSL proves too difficult for the initial release.
 
