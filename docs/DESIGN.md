@@ -24,7 +24,7 @@ There is also this phase 1 prioritization document: https://webpros.atlassian.ne
 
 Most AI apps are Node.js-based, so we are starting with NodeJS support.
 
-We should be able to support any language/framework. All languages/frameworks are supported via [Adaptors](#adaptors) and should require no changes to the [API](#api). e.g. If an [API](#api) change is required to add support for a new thing we have failed.
+We should be able to support any language/framework. All languages/frameworks are supported via [Adapters](#adapters) and should require no changes to the [API](#api). e.g. If an [API](#api) change is required to add support for a new thing we have failed.
 
 ## API
 
@@ -32,9 +32,9 @@ This should cover all necessary tasks in web app lifecycle and management.
 
 The API MUST have no [App Type](#app-types) specific knowledge and MUST do no [App Type](#app-types) specific logic.
 
-Instead it will consume [App Type adaptors](#adaptors) and then, based on the adaptor/limits/input/etc, call [`ea-podman`](#ea-podman) appropriately.
+Instead it will consume [App Type adapters](#adapters) and then, based on the adapter/limits/input/etc, call [`ea-podman`](#ea-podman) appropriately.
 
-For example, a “get available” call would return a subset of [Adaptor](#adaptors) data filtered through the applicable [limits](#limits): first the server settings for which [App Types](#app-types) are enabled at all (e.g. Node.js yes, Python no, PSGI yes), then the user’s usage on top of that (e.g. Node.js 0, PSGI 2). It would also include the user’s current calculated limits and usage — e.g. for Node.js: the user has 1, is limited to 2, and the current Node.js resource limits are ….
+For example, a “get available” call would return a subset of [Adapter](#adapters) data filtered through the applicable [limits](#limits): first the server settings for which [App Types](#app-types) are enabled at all (e.g. Node.js yes, Python no, PSGI yes), then the user’s usage on top of that (e.g. Node.js 0, PSGI 2). It would also include the user’s current calculated limits and usage — e.g. for Node.js: the user has 1, is limited to 2, and the current Node.js resource limits are ….
 
 ## MCP
 
@@ -61,9 +61,9 @@ User should not be able to change these.
 
 > **Note — these limits govern what our system does on a user’s behalf.** They’re the values the [API](#api)/[UI](#ui)/[MCP](#mcp) apply when deploying and managing an app through Web App Hub. A user with normal shell access still has ordinary container operability outside of that — they can run an arbitrary image or container directly, just as they can today, and those aren’t bound by Web App Hub’s limits. That’s expected container behavior, not a gap in this design; we’re noting it so the scope of the limits is clear. (And it may not even arise for WebPros Dashboard users if they can’t log into their cPanel account as a normal user.)
 
-**Cascading resource limits** (CPU and Memory per [App Type](#app-types)). Each level defaults to the next one up, so the effective value resolves in this precedence: **App → User → Global → [Adaptor](#adaptors) default**. A more specific level overrides the broader one and may set any value, higher or lower.
+**Cascading resource limits** (CPU and Memory per [App Type](#app-types)). Each level defaults to the next one up, so the effective value resolves in this precedence: **App → User → Global → [Adapter](#adapters) default**. A more specific level overrides the broader one and may set any value, higher or lower.
 
-1. **[Adaptor](#adaptors)** default CPU and Memory per [App Type](#app-types)
+1. **[Adapter](#adapters)** default CPU and Memory per [App Type](#app-types)
 1. **Global** default CPU and Memory per [App Type](#app-types) for this server
 1. **User** default CPU and Memory per [App Type](#app-types)
 1. **App** CPU and Memory of a specific _instance_
@@ -95,7 +95,7 @@ A new subdomain gets SSL the usual way and time frame. The open question is **SS
 
 ## Images
 
-Apps run from container images, and the [Adaptors](#adaptors) declare which images/tags each [App Type](#app-types) supports.
+Apps run from container images, and the [Adapters](#adapters) declare which images/tags each [App Type](#app-types) supports.
 
 **The plan for the initial release is to pull those images directly from Docker Hub** — the standard registry, no extra infrastructure. Recording it here so it’s an explicit decision.
 
@@ -122,8 +122,8 @@ The [API](#api) must return **machine-readable errors** — structured output wi
 
 1. Install (`ea-podman install …`)
    1. get a zip file or git repo
-   2. detect which [App Type](#app-types) it is, using [Adaptors](#adaptors)
-   3. configure it based on [Adaptors](#adaptors) and input
+   2. detect which [App Type](#app-types) it is, using [Adapters](#adapters)
+   3. configure it based on [Adapters](#adapters) and input
    4. deploy it to a subdomain
 2. Lifecycle management
    1. Config updating
@@ -162,9 +162,9 @@ Other things were evaluated and are problematic for one reason or another.
 
 See https://webpros.atlassian.net/wiki/spaces/ZC/pages/6692208704/AI+friendly+Web+App+Hub+Technical#podman for the benefits of this approach.
 
-### Adaptors
+### Adapters
 
-An “adaptor” is what will contain all data and logic about languages and their frameworks that we need to inform the [API](#api) so that it can operate on an app of a given language/framework.
+An “adapter” is what will contain all data and logic about languages and their frameworks that we need to inform the [API](#api) so that it can operate on an app of a given language/framework.
 
 The exact structure will materialize as the feature progresses.
 
@@ -177,7 +177,7 @@ They will definitely include:
 
 **They must be separate from [API](#api) code/files**.
 
-So separate that they could be managed in their own package without needing to update the [API](#api). Doing them in a separate package, while not required, would make that separation clearer, easier to preserve, and facilitate more rapid maintenance like any upstream-based EA4 pkg (after initial release the [API](#api) will rarely update but the adaptors will regularly change). If we want to do that initially or sometime later we will use `ea-web-app-hub`.
+So separate that they could be managed in their own package without needing to update the [API](#api). Doing them in a separate package, while not required, would make that separation clearer, easier to preserve, and facilitate more rapid maintenance like any upstream-based EA4 pkg (after initial release the [API](#api) will rarely update but the adapters will regularly change). If we want to do that initially or sometime later we will use `ea-web-app-hub`.
 
 **They must be extendable by 3rd parties and admins**.
 
