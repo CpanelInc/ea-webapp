@@ -128,13 +128,29 @@ The [API](#api) must return **machine-readable errors** — structured output wi
 2. Lifecycle management
    1. Config updating
    2. Service state/control
-   3. Update git (git pull)/container (`ea-podman upgrade …`)
+   3. Update [app code](#updating-an-app) (git: `git pull`) and/or container (`ea-podman upgrade …`)
 3. Uninstall (`ea-podman uninstall …`)
    * Should cleanup subdomain and web server config and anything else outside of ea-podman.
 
 Each app should have a slug, either given or derived from the zip or git name. That slug is used in the podman name (pod name and directory), the subdomain, and anywhere else we need to refer to it. Because the slug must be a valid subdomain label, its format is constrained to lowercase alphanumerics and hyphens — which also makes it path-safe for use in directory names.
 
 Each app will log to `~/logs/webapps/SLUG.log`. `podman` can do this (and rotate them in real time) using the example flags in [the podman wiki article](https://webpros.atlassian.net/wiki/spaces/ZC/pages/6692208704/AI+friendly+Web+App+Hub+Technical#podman).
+
+### Updating an App
+
+Two things can be updated independently: the **container/image** and the **app code**.
+
+- **Container/image** updates apply to any app regardless of source, via `ea-podman upgrade …`.
+- **App code** updates depend on how the app was deployed.
+
+**Git-deployed apps** have a first-class re-deploy path: `git pull` then deploy, with `.gitignore` expressing which paths (uploads, generated files, runtime config, etc.) are preserved across re-deploys. This is the recommended path for any app under ongoing development.
+
+**Zip-deployed apps** have no such path, and we deliberately do not invent one. A zip is a one-shot snapshot: it carries no pull source and no manifest of what is precious. A running app may also have accreted runtime state the original zip never knew about — a [database](#databases), uploaded media, generated config — and an app that started static may no longer be. So we never merge a new zip into a running app (neither "unzip on top" nor "wipe and unzip with smart logic"), because guessing what to preserve is re-inventing a fragile, partial git.
+
+Instead, a zip-deployed app has two explicit, opt-in update options:
+
+1. **Convert to git.** The user attaches the app to a git remote, after which it becomes a git-deployed app and inherits the full re-deploy lifecycle above (including `.gitignore`). This is the recommended path once an app needs ongoing updates. Conversion is a one-time migration, not new lifecycle machinery — it moves the app onto the path we already support rather than building a second one.
+2. **Replace from a new zip (full redo).** The app's code/app directory and container are wiped and rebuilt from the new zip. Because this discards anything not in the new zip, it is gated behind an explicit acknowledgement — not free-form text but a deterministic flag/field, so an [MCP](#mcp)/[API](#api) consumer opts in unambiguously and can never trigger a wipe by accident. A tied [database](#databases) is preserved by default; removing it is a separate, explicit action so neither the app nor its data is silently orphaned.
 
 ### Streaming Output
 
