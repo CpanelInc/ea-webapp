@@ -245,8 +245,7 @@ Identical to the non-static PoC. Create a **root-owned Apache userdata
 reverse-proxy include** for **both** the SSL (`2_4`) and standard vhost paths,
 pointing at the host port from Step 4.
 
-`/etc/apache2/conf.d/userdata/ssl/2_4/cptest1/app.example.com/podman-poc.conf`
-(and the same body under `.../std/2_4/...`):
+SSL path — `/etc/apache2/conf.d/userdata/ssl/2_4/cptest1/app.example.com/podman-poc.conf`:
 
 ```apache
 ProxyPreserveHost On
@@ -255,6 +254,12 @@ ProxyPassReverse / http://127.0.0.1:10001/
 RequestHeader set X-Forwarded-Proto "https"
 ```
 
+Create the equivalent non-SSL include under the standard (non-`ssl`) userdata
+path as well:
+`/etc/apache2/conf.d/userdata/std/2_4/cptest1/app.example.com/podman-poc.conf`
+(use the same body; you may keep `X-Forwarded-Proto "http"` there, or drop the
+header on the non-SSL path).
+
 > Replace `10001` with the actual host port from Step 4.
 
 Apply the includes and rebuild Apache (as root):
@@ -262,7 +267,7 @@ Apply the includes and rebuild Apache (as root):
 ```bash
 /usr/local/cpanel/scripts/ensure_vhost_includes --user=cptest1
 /usr/local/cpanel/scripts/rebuildhttpdconf
-/usr/local/cpanel/scripts/restartsrv_httpd
+/scripts/restartsrv_httpd
 ```
 
 ### Step 6 — Verify HTTPS end to end
@@ -292,7 +297,7 @@ To detach the subdomain, remove the includes and rebuild (as root):
 rm /etc/apache2/conf.d/userdata/ssl/2_4/cptest1/app.example.com/podman-poc.conf
 rm /etc/apache2/conf.d/userdata/std/2_4/cptest1/app.example.com/podman-poc.conf
 /usr/local/cpanel/scripts/rebuildhttpdconf
-/usr/local/cpanel/scripts/restartsrv_httpd
+/scripts/restartsrv_httpd
 ```
 
 ## Gotchas
