@@ -166,6 +166,9 @@ it yourself if the container must survive logout. A few more consequences:
 
 ## Ports
 
+Both PoCs run a **long-running container that publishes a host port and is
+reverse-proxied to a subdomain**, so the points below apply to both.
+
 - `--cpuser-port=<container-port|0>` names the port **inside** the container — it
   is **not** the public port. The cPanel **port authority allocates a different
   host port**, recording the assignment (owner + service). That assignment **stays
@@ -182,6 +185,10 @@ it yourself if the container must survive logout. A few more consequences:
   build-only container). ✓ Its `ea-podman.json` then records `"ports": []`. ✓
 - Discover the assigned host port after install with `ea-podman list` or
   `podman ps --format '{{.Names}} {{.Ports}}'`.
+- **The in-container server must bind `0.0.0.0`**, not the container's
+  `127.0.0.1`, or the published host port cannot reach it. ✓ And the
+  reverse-proxy include (created in each PoC's wiring step) should set
+  `X-Forwarded-Proto` so the app emits correct `https://` links behind the proxy.
 - A TCP port is not the only option: a service can equally expose a **unix
   socket** (e.g. a socket file in a mounted directory) for the consumer to talk
   to instead — anywhere a published port works, a socket works just as well. (Per

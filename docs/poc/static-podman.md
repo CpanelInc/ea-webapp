@@ -191,7 +191,8 @@ http
 ```
 
 > The server **must** bind `0.0.0.0`, not the container's `127.0.0.1`, or the
-> published host port cannot reach it. A real deployment would use a hardened
+> published host port cannot reach it (see the
+> [overview](./ea-podman.md#ports)). A real deployment would use a hardened
 > static server (nginx, Caddy, `serve`) instead of this minimal `serve.js`.
 
 ### Step 3 — Build and serve via ea-podman
@@ -312,13 +313,13 @@ rm /etc/apache2/conf.d/userdata/std/2_4/cptest1/app.example.com/podman-poc.conf
   OOM-kill the container (`Exited (137)`) under restart churn. **Productization
   should separate the one-time build from a stable, low-overhead static server**
   rather than rebuilding on every start.
-- **The server must bind `0.0.0.0`** (not the container's `127.0.0.1`), or the
-  published host port cannot reach it.
+- **Common long-running-service requirements are in the
+  [overview](./ea-podman.md#ports):** the server must bind `0.0.0.0` (not the
+  container's `127.0.0.1`) or the published host port can't reach it, and the
+  proxy include must set `X-Forwarded-Proto`.
 - **The proxy only works while the container is serving.** Apache reaches the
   rootless-published port on the host loopback (verified), but only when the
   container is up and past its rebuild; otherwise expect `503`.
-- **`X-Forwarded-Proto`** must be set so the app emits correct `https://` links
-  behind the proxy.
 - **The include hard-codes the host port.** The authority keeps a container's port
   fixed for its life and releases it on uninstall, but recreating the container can
   change it, breaking the include until updated (a productization concern).
