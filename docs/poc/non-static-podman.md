@@ -12,15 +12,12 @@ HTTP server that listens on a published port for the life of the container.
 
 ## What ea-podman does — and what it does not
 
-`ea-podman`'s responsibility **ends** at:
+For what `ea-podman` does in general (install mechanics, ports, lifecycle), see
+the shared [ea-podman overview](./ea-podman.md). What matters for this PoC is
+where its responsibility **ends**:
 
 > a container is running, its container port is published to a host port,
 > and that host port is firewalled via the cPanel port authority.
-
-> **Port or socket.** This PoC publishes to a host **port**, but the same wiring
-> works if the app listens on a **unix socket** instead — it's a universal
-> choice (if a port works, a socket works, and vice versa), so no separate
-> socket PoC is needed.
 
 `ea-podman` does **not**:
 
@@ -35,10 +32,15 @@ subdomain.
 
 ## Prerequisites
 
-- **EA4 `ea-podman` package installed** on the server.
+See the [ea-podman overview](./ea-podman.md#prerequisites) for the universal
+prerequisites (EA4 `ea-podman`, subuid/subgid, a real bash login shell,
+`systemd`, lingering, and a pullable image). Specific to this PoC:
+
 - Apache modules enabled: **`mod_proxy`, `mod_proxy_http`, `mod_rewrite`,
-  `mod_headers`.**
-- **`systemd`** present (user-level units are used to supervise the container).
+  `mod_headers`** (for the reverse proxy).
+- A **container image whose entry point starts the server** — either a pullable
+  image with a suitable `CMD`, or one you build locally (Step 3). This PoC
+  builds a small image on top of `docker.io/library/node:20-alpine`.
 - **Unprivileged user namespaces enabled** (`user.max_user_namespaces > 0`).
   Rootless podman maps the subuid/subgid ranges through a user namespace, so
   this must be non-zero or every `ea-podman` command fails up front with
@@ -51,61 +53,6 @@ subdomain.
   echo 'user.max_user_namespaces = 15000' > /etc/sysctl.d/99-rootless-podman.conf
   sysctl --system                            # persist across reboots
   ```
-- **`subuid` / `subgid`** ranges for the cPanel user (required for rootless
-  podman user-namespace mapping). You do **not** allocate these by hand —
-  `ea-podman`'s `ensure_user` writes them to `/etc/subuid` and `/etc/subgid`.
-  Provision them explicitly with `ea-podman subids --ensure` **before** the
-  first `podman` command (see Step 3); any `ea-podman` subcommand also triggers
-  this, but a raw `podman build`/`run` does **not** (verified:
-  `<account>:589825:65536` appeared after `subids --ensure`).
-- A **real bash login shell** for the cPanel user (not `jailshell`/noshell) —
-  granted with `whmapi1 modifyacct user=<account> shell=/bin/bash` (see Step 0
-  and the SSH gotcha below).
-- **Lingering** enabled for the user so user services survive logout/reboot.
-  Do not assume `ea-podman` does this for you — see Step 4. (`ea-podman` only
-  calls `loginctl enable-linger` when `XDG_RUNTIME_DIR` is unset, which is
-  **not** the case on the direct-SSH path this doc recommends, so it is
-  effectively skipped — `util.pm` `ensure_su_login`.)
-- A **container image whose entry point starts the server** — either a pullable
-  image with a suitable `CMD`, or one you build locally (Step 3). This PoC
-  builds a small image on top of `docker.io/library/node:20-alpine`.
-
-## How ea-podman install works (for reference)
-
-When you run `ea-podman install`, it:
-
-1. Registers a podman container for the cPanel user.
-2. **Calls the cPanel port authority on your behalf** to allocate and firewall
-   a host port for each `--cpuser-port=<container-port|0>` you pass — you do
-   **not** run `cpuser_port_authority` yourself. The value you give
-   `--cpuser-port` is the **port inside the container**; the port authority
-   picks the public host port and `ea-podman` publishes the container port to
-   it as `-p <host-port>:<container-port>` (`util.pm` `_get_new_ports` /
-   `install`).
-3. Persists `~/ea-podman.d/<container>/ea-podman.json` (including the
-   `--cpuser-port` values under `ports`).
-4. Registers the container in
-   `/opt/cpanel/ea-podman/registered-containers.json`.
-5. Generates a **user systemd unit**
-   (`podman generate systemd --restart-policy on-failure`) and runs
-   `systemctl --user enable --now` on it.
-6. **Does not reliably enable linger.** `ea-podman` only runs
-   `loginctl enable-linger` when `XDG_RUNTIME_DIR` is unset; on the direct-SSH
-   path this doc recommends it is already set, so linger is **not** enabled and
-   you must do it yourself (Step 4).
-
-### Disallowed passthrough arguments
-
-`ea-podman` manages these itself; passing them through to the image is
-rejected: `-p`/`--publish`, `-d`/`--detach`, `-h`/`--hostname`, `--name`,
-`--rm`, `--rmi`, `--replace`, `-i`, `-t`.
-
-### Arbitrary images
-
-An **arbitrary image** is any image that is not packaged as an "ea-podman based
-package" (it has nothing to do with whether the image tag is pinned). Running
-one — including an image you build locally — requires the explicit
-`--i-understand-the-risks-do-it-anyway` flag.
 
 ## Procedure
 
@@ -133,11 +80,9 @@ ssh <account>@SERVER_IP
 
 Connect with **direct SSH** so you land in a **real bash** session.
 
-> **Do not** use `su -` or `jailshell` to reach the user. Rootless podman needs
-> the per-user session that a direct login establishes; reaching the user any
-> other way leaves that environment incomplete and podman misbehaves. This is a
-> solvable problem that was never prioritized and will be handled for the
-> shipped feature — for the PoC, just connect directly.
+> **Do not** use `su -` or `jailshell` to reach the user — rootless podman needs
+> the per-user session a direct login establishes (see
+> [Connecting](./ea-podman.md#connecting-use-direct-ssh) in the overview).
 
 ### Step 1 — Create the subdomain
 
@@ -157,16 +102,13 @@ This creates `app.<account-domain>`. `ea-podman` will **not** do this for you.
 A long-running HTTP server is the key difference from the static PoC. The
 server binds `0.0.0.0` on `process.env.PORT || 3000` and stays up.
 
-> **Why an image instead of a trailing command?** `ea-podman` treats the
-> **last argument to `install` as the image** and inserts the `-p` publish
-> mapping immediately before it. If you append a run command after the image
-> (e.g. `… node:20-alpine npm start`), `ea-podman` mistakes `start` for the
-> image, wedges `-p <host>:<container>` into the *container command*, and
-> publishes **no** port — the container then crash-loops on
-> `Unknown command: "<host>:<container>"`. (Verified on a live server; see
-> `util.pm` `install`, which does `pop @real_start_args` to grab the image.)
-> The reliable pattern is therefore to **bake the entry point into the image's
-> `CMD`** and pass no trailing command.
+> **Why bake the entry point into the image instead of passing a trailing
+> command?** When you publish a port, `ea-podman` requires the image to be the
+> final `install` argument with no trailing command, or it mis-places the `-p`
+> mapping and the container crash-loops — see
+> [Running an arbitrary image](./ea-podman.md#running-an-arbitrary-image) in the
+> overview. So bake the server into the image's `CMD` and pass no trailing
+> command.
 
 Create the app directory first (as the cPanel user), then add the three files
 below:
@@ -266,15 +208,13 @@ ea-podman install pocnode \
 > `localhost/…` as a registry. Re-check step 2/3: the build must have completed
 > **as this same user**, and `podman images` must list it.
 
-- `--cpuser-port=3000` is the port the server listens on **inside** the
-  container. `ea-podman` calls the port authority for you and publishes the
-  container port to an allocated, firewalled **host port** (e.g. `10001`) as
-  `-p 10001:3000`. That assigned host port — not this value — is what Apache
-  proxies to. You never call `cpuser_port_authority` yourself.
+- `--cpuser-port=3000` is the **container** port; the port authority allocates a
+  separate firewalled **host port** (e.g. `10001`) that Apache proxies to — see
+  [Ports](./ea-podman.md#ports) in the overview.
 - `--i-understand-the-risks-do-it-anyway` is required because a locally built
   image is an arbitrary (non-package) image.
-- No `-p`, `-d`, `--name`, etc. — `ea-podman` manages those (see *Disallowed
-  passthrough arguments*).
+- No `-p`, `-d`, `--name`, etc. — `ea-podman` manages those (see the overview's
+  [disallowed passthrough arguments](./ea-podman.md#disallowed-passthrough-arguments)).
 
 If the app needs **writable persistent storage** at runtime (uploads, a build
 cache, logs), bind-mount a subdirectory of the per-container managed directory
@@ -389,11 +329,6 @@ rm /etc/apache2/conf.d/userdata/std/2_4/<account>/app.<account-domain>/podman-po
 
 ## Gotchas
 
-- **`su -` / jailshell does not give you a working rootless environment.**
-  Always connect via direct SSH as the user into a real bash shell so the
-  per-user session (DBus, `XDG_RUNTIME_DIR`) is set up. This is a solvable
-  problem that simply was never prioritized and will be handled for the shipped
-  feature; for the PoC, direct SSH is the supported path.
 - **Linger is not enabled for you.** Because direct SSH already sets
   `XDG_RUNTIME_DIR`, `ea-podman` skips its `loginctl enable-linger` call, so the
   container stops when your session ends. Enable linger explicitly (Step 4).
@@ -413,25 +348,15 @@ rm /etc/apache2/conf.d/userdata/std/2_4/<account>/app.<account-domain>/podman-po
   unreachable from the published host port.
 - **`X-Forwarded-Proto`** must be set so the app generates correct
   `https://` redirects/links behind the proxy.
-- **Rootless files are owned by subuids.** Files written inside the container
-  appear on the host owned by mapped `subuid`/`subgid` values, not the bare
-  cPanel UID. Plan inspection/cleanup accordingly.
 
 ## Security considerations
 
-- **Rootless is the win.** The container runs as the unprivileged cPanel user
-  in a user namespace — no root daemon, blast radius confined to the user.
-- **Trusted images.** Prefer ea-podman package images or images you build
-  yourself from a trusted base, and pin the base by digest/tag. Any non-package
-  image is "arbitrary" and requires `--i-understand-the-risks-do-it-anyway`.
-- **Port authority firewalling.** Published host ports are allocated and
-  firewalled by the cPanel port authority, so they are not exposed beyond the
-  intended path.
-- **`hidepid=2`** limits a user's visibility of other users' processes,
-  reinforcing isolation on a shared host.
-- **Least privilege on capabilities.** **Drop capabilities** the workload does
-  not need. (Do not mount the app read-only — a rootless build and most real
-  workloads need to write, so `:ro` is a non-starter here.)
+The general `ea-podman` security posture (rootless isolation, trusted/pinned
+images, the `--i-understand-the-risks-do-it-anyway` gate, `hidepid=2`,
+least-privilege capabilities, and port-authority firewalling of the published
+port) is in the [ea-podman overview](./ea-podman.md#security-posture). Specific
+to this PoC: do **not** mount the app read-only — a rootless build and most
+long-running workloads need to write, so `:ro` is a non-starter here.
 
 ## What productization needs
 
