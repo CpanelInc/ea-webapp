@@ -5,7 +5,7 @@ Node.js server** for a cPanel user inside a rootless `ea-podman` container,
 then wiring a subdomain to it over HTTPS via an Apache reverse proxy.
 
 It is the long-running sibling to the
-[static PoC](./static-podman.md) (CPANEL-53967). The procedure is almost
+[static PoC](./static-podman.md) (CPANEL-53969). The procedure is almost
 identical; the meaningful difference is the container entry point: instead of
 running a one-shot build and exiting, the entry point launches a persistent
 HTTP server that listens on a published port for the life of the container.
