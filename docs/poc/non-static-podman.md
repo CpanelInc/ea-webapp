@@ -32,27 +32,14 @@ subdomain.
 
 ## Prerequisites
 
-See the [ea-podman overview](./ea-podman.md#prerequisites) for the universal
-prerequisites (EA4 `ea-podman`, subuid/subgid, a real bash login shell,
-`systemd`, lingering, and a pullable image). Specific to this PoC:
+See the [ea-podman overview](./ea-podman.md#prerequisites) for the full list
+(EA4 `ea-podman`, user namespaces, subuid/subgid, a real bash login shell,
+`systemd`, the Apache reverse-proxy modules, lingering, and a pullable image).
+Specific to this PoC:
 
-- Apache modules enabled: **`mod_proxy`, `mod_proxy_http`, `mod_rewrite`,
-  `mod_headers`** (for the reverse proxy).
 - A **container image whose entry point starts the server** — either a pullable
   image with a suitable `CMD`, or one you build locally (Step 3). This PoC
   builds a small image on top of `docker.io/library/node:20-alpine`.
-- **Unprivileged user namespaces enabled** (`user.max_user_namespaces > 0`).
-  Rootless podman maps the subuid/subgid ranges through a user namespace, so
-  this must be non-zero or every `ea-podman` command fails up front with
-  `❌ User Namespaces not available`. Stock EL9 ships with a large default, but
-  hardened images sometimes zero it out. Enable and persist it as root:
-
-  ```bash
-  sysctl user.max_user_namespaces            # 0 or empty = disabled
-  sysctl -w user.max_user_namespaces=15000   # enable now
-  echo 'user.max_user_namespaces = 15000' > /etc/sysctl.d/99-rootless-podman.conf
-  sysctl --system                            # persist across reboots
-  ```
 
 ## Procedure
 
@@ -147,9 +134,8 @@ server.listen(port, "0.0.0.0", () => {
 }
 ```
 
-> The server **must** bind `0.0.0.0` (not `127.0.0.1`). Inside the container,
-> `127.0.0.1` is the container's own loopback and would not be reachable from
-> the published host port.
+> The server **must** bind `0.0.0.0` (not the container's `127.0.0.1`) or the
+> published host port can't reach it — see [Ports](./ea-podman.md#ports).
 
 `~/nodeapp/Containerfile` — bakes the entry point into the image's `CMD`:
 
@@ -344,10 +330,6 @@ rm /etc/apache2/conf.d/userdata/std/2_4/<account>/app.<account-domain>/podman-po
   hard-codes that port, which only needs updating if you fully uninstall and
   reinstall (which yields a new assignment). Resolving the port programmatically
   is still a productization concern — see below.
-- **The app must bind `0.0.0.0`.** Binding the container's `127.0.0.1` makes it
-  unreachable from the published host port.
-- **`X-Forwarded-Proto`** must be set so the app generates correct
-  `https://` redirects/links behind the proxy.
 
 ## Security considerations
 
