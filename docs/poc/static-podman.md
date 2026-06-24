@@ -50,21 +50,18 @@ files (the build output) rather than running an application server.
 
 ## Prerequisites
 
-See the [ea-podman overview](./ea-podman.md) for the full list. Specific to this
+See the [ea-podman overview](./ea-podman.md) for the full common list (EA4
+`ea-podman`, user namespaces, subuid/subgid, a real bash login shell, `systemd`,
+the Apache reverse-proxy modules, linger, and a pullable image). Specific to this
 PoC:
 
-- Everything in the overview's prerequisites (EA4 `ea-podman`, subuid/subgid —
-  auto-allocated on install, a **real bash login shell**, a pullable image).
-- Apache **`mod_proxy` and `mod_proxy_http`** enabled (for the reverse proxy).
 - **Outbound npm-registry access** — the build runs `npm install` to fetch the
   TypeScript compiler.
-- **Linger enabled for the user** (`loginctl enable-linger <user>`, as root) —
-  **or** an SSH session kept open for as long as the site must stay up. This is a
-  **long-running** container, and `ea-podman` does **not** enable linger on the
-  direct-SSH path (see the overview). Without linger the user's `systemd` manager
-  runs only while a login session is open, so the container — and the site — stops
-  the moment your **last SSH session closes**, and the proxy then returns **503**.
-  Enabling linger is the durable choice (it also survives reboot).
+- **This is a long-running container, so linger matters here.** Enable linger
+  (Step 0) **or** keep an SSH session open for as long as the site must stay up;
+  without it the container — and the site — stops the moment your **last SSH
+  session closes** and the proxy returns **503**. (Full rationale in the
+  overview.)
 
 ## Procedure
 

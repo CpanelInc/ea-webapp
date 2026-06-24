@@ -36,12 +36,33 @@ See [How `ea-podman` install works](#how-ea-podman-install-works) and
 ## Prerequisites
 
 - **EA4 `ea-podman` package installed** on the server.
+- **Unprivileged user namespaces enabled** (`user.max_user_namespaces > 0`).
+  Rootless podman maps the user's `subuid`/`subgid` ranges through a user
+  namespace, so this must be non-zero or `ea-podman`/`podman` commands fail up
+  front with `❌ User Namespaces not available`. Stock EL ships a large default
+  (confirmed non-zero on the live server ✓); hardened images sometimes zero it
+  out. Enable and persist it as root:
+
+  ```bash
+  sysctl user.max_user_namespaces             # 0 or empty = disabled
+  sysctl -w user.max_user_namespaces=15000    # enable now
+  echo 'user.max_user_namespaces = 15000' > /etc/sysctl.d/99-rootless-podman.conf
+  sysctl --system                             # persist across reboots
+  ```
 - **`subuid` / `subgid`** ranges for the cPanel user (rootless user-namespace
   mapping). `ea-podman install` allocates these automatically on first use ✓;
-  check with `ea-podman subids` (or `ea-podman subids --ensure`).
+  provision/inspect explicitly with `ea-podman subids --ensure`. Any `ea-podman`
+  subcommand triggers allocation; a **raw `podman` command does not**.
 - A **real bash login shell** for the cPanel user (not `jailshell`/`noshell`) —
-  see [Connecting](#connecting-use-direct-ssh) below. ✓
+  set it as root with `whmapi1 modifyacct user=<user> shell=/bin/bash` (the API
+  behind WHM » Manage Shell Access). See [Connecting](#connecting-use-direct-ssh)
+  below. ✓
 - **`systemd`** present — user-level units supervise the container.
+- **Apache reverse-proxy modules** — `mod_proxy`, `mod_proxy_http`, and
+  `mod_headers` — enabled. Both PoCs wire the subdomain to the container's
+  published host port with the same Apache reverse-proxy include (`ProxyPass` /
+  `ProxyPassReverse` plus a `RequestHeader` for `X-Forwarded-Proto`), so all
+  three are required. Confirmed loaded on the live server ✓.
 - **Lingering** (`loginctl enable-linger <user>`, as root) so the user's `systemd`
   manager — and its containers — keep running with no active login session.
   **Enable it yourself.** Contrary to what you might expect, `ea-podman` only turns
@@ -51,13 +72,15 @@ See [How `ea-podman` install works](#how-ea-podman-install-works) and
   session is open, so a long-running container **stops the moment your last SSH
   session closes** (verified: `Linger=no` after an SSH install, and the container
   went down — taking a reverse-proxied site to `503` — once the session ended).
-  A one-shot/build container does not need linger; a persistent service does.
+  A purely one-shot/build container would not need linger; the persistent
+  services in **both** PoCs do.
 - A **pullable container image** (the PoCs use `docker.io/library/node:20-alpine`).
 
-> Serving-model-specific prerequisites live in the individual PoCs, **not** here:
-> the non-static PoC additionally needs Apache `mod_proxy`/`mod_proxy_http` (for
-> the reverse proxy), and a build that runs `npm install` needs outbound access
-> to the package registry. Neither applies universally.
+> A few prerequisites are **specific to one PoC** and stay in its doc: the
+> **static** PoC needs outbound access to the package registry (its build runs
+> `npm install`), and the **non-static** PoC builds a local image, which requires
+> the user's `subuid`/`subgid` ranges to exist *before* the first `podman` command
+> (run `ea-podman subids --ensure` first).
 
 ## Connecting: use direct SSH
 
