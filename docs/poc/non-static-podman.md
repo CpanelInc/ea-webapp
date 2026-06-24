@@ -84,21 +84,16 @@ uapi SubDomain addsubdomain domain=app rootdomain=<account-domain> dir=public_ht
 
 This creates `app.<account-domain>`. `ea-podman` will **not** do this for you.
 
-### Step 2 — Create the non-static Node.js app and a Containerfile
+### Step 2 — Create the non-static Node.js app
 
-A long-running HTTP server is the key difference from the static PoC. The
-server binds `0.0.0.0` on `process.env.PORT || 3000` and stays up.
+The app just needs to be a **long-running server that listens on a port** — in
+any language or framework. The example below is a tiny Node.js HTTP server; the
+only things that matter for the PoC are that it **stays running** and **binds
+`0.0.0.0`** on the port `ea-podman` will publish (here `process.env.PORT`,
+defaulting to `3000`). A real app does the same in whatever stack it uses.
 
-> **Why bake the entry point into the image instead of passing a trailing
-> command?** When you publish a port, `ea-podman` requires the image to be the
-> final `install` argument with no trailing command, or it mis-places the `-p`
-> mapping and the container crash-loops — see
-> [Running an arbitrary image](./ea-podman.md#running-an-arbitrary-image) in the
-> overview. So bake the server into the image's `CMD` and pass no trailing
-> command.
-
-Create the app directory first (as the cPanel user), then add the three files
-below:
+Create the app locally as the cPanel user — for this example a single file is
+enough:
 
 ```bash
 mkdir ~/nodeapp
@@ -121,96 +116,48 @@ server.listen(port, "0.0.0.0", () => {
 });
 ```
 
-`~/nodeapp/package.json`:
-
-```json
-{
-  "name": "nodeapp",
-  "version": "1.0.0",
-  "private": true,
-  "scripts": {
-    "start": "node server.js"
-  }
-}
-```
-
 > The server **must** bind `0.0.0.0` (not the container's `127.0.0.1`) or the
 > published host port can't reach it — see [Ports](./ea-podman.md#ports).
 
-`~/nodeapp/Containerfile` — bakes the entry point into the image's `CMD`:
+### Step 3 — Run the app via ea-podman
 
-```dockerfile
-FROM docker.io/library/node:20-alpine
-WORKDIR /app
-COPY server.js package.json /app/
-ENV PORT=3000
-CMD ["npm", "start"]
-```
-
-### Step 3 — Build the image and run it via ea-podman
-
-Do everything here **as the cPanel user** (rootless build — this is also why the
-app directory must be writable; a read-only layout cannot be built). **Order
-matters:** the rootless build needs the user's `subuid`/`subgid` ranges to exist
-*before* the first `podman` command, or it fails unpacking the base image
-(`lchown … invalid argument`). `ea-podman` provisions those ranges but does
-**not** do so as a side effect of `podman` — so provision them first:
+No image build is needed: run the stock `node:20-alpine` image **straight from
+Docker Hub**, **mount your app into it** with `-v`, and start the server with
+`--entrypoint`. `ea-podman install` sets up the user's `subuid`/`subgid` ranges
+itself, so there is no separate provisioning step. Run this as the cPanel user:
 
 ```bash
 export PATH="/opt/cpanel/ea-podman/bin:/usr/local/cpanel/scripts:$PATH"
 
-# 1. Provision (and display) the user's subuid/subgid ranges before any podman
-#    command. This is what makes the rootless build work.
-ea-podman subids --ensure
-grep "^$(whoami):" /etc/subuid /etc/subgid    # expect e.g. <account>:589825:65536
-
-# 2. Build the image. It must be the LAST argument to install, with NO trailing
-#    command — the server starts from the image's CMD.
-cd ~/nodeapp
-podman build -t localhost/pocnode:1 .
-
-# 3. Confirm the image is in THIS user's local store (so install does not try to
-#    "pull" localhost/… from a registry).
-podman images localhost/pocnode
-
-# 4. Install.
 ea-podman install pocnode \
   --cpuser-port=3000 \
+  -e PORT=3000 \
+  -v "$HOME/nodeapp:/app" \
+  -w /app \
+  --entrypoint='["node","server.js"]' \
   --i-understand-the-risks-do-it-anyway \
-  localhost/pocnode:1
+  docker.io/library/node:20-alpine
 ```
-
-> **Recovery — `lchown … invalid argument` on build.** If you ran `podman`
-> *before* the subuid ranges existed, podman initialized your storage in
-> single-mapping mode and won't pick up the ranges added afterward. Run
-> `podman system migrate` to re-read `/etc/subuid` / `/etc/subgid`, then rebuild.
-> If stale storage persists, `podman system reset` (destructive — wipes this
-> user's images/containers) then rebuild. In a clean run (ranges provisioned
-> first), neither is needed — `ea-podman` itself never calls `migrate`.
-
-> **`install` tries to "pull" `localhost/…` and fails on TLS.** That means the
-> image isn't in the user's local store — `ea-podman install` runs
-> `podman create`, which pulls only when the image is *missing*, and parses
-> `localhost/…` as a registry. Re-check step 2/3: the build must have completed
-> **as this same user**, and `podman images` must list it.
 
 - `--cpuser-port=3000` is the **container** port; the port authority allocates a
   separate firewalled **host port** (e.g. `10001`) that Apache proxies to — see
   [Ports](./ea-podman.md#ports) in the overview.
-- `--i-understand-the-risks-do-it-anyway` is required because a locally built
-  image is an arbitrary (non-package) image.
+- `-v "$HOME/nodeapp:/app"` mounts your app into the container (read-write by
+  default, so it can write logs/uploads), `-w /app` runs in it, and
+  `--entrypoint='["node","server.js"]'` starts the server. The **image must be
+  the last argument** with the command supplied via `--entrypoint` — see
+  [Running an arbitrary image](./ea-podman.md#running-an-arbitrary-image).
+- `--i-understand-the-risks-do-it-anyway` is required because the stock image is
+  an arbitrary (non-package) image.
 - No `-p`, `-d`, `--name`, etc. — `ea-podman` manages those (see the overview's
   [disallowed passthrough arguments](./ea-podman.md#disallowed-passthrough-arguments)).
 
-If the app needs **writable persistent storage** at runtime (uploads, a build
-cache, logs), bind-mount a subdirectory of the per-container managed directory
-`ea-podman` creates during install — `~/ea-podman.d/<container_name>/` (e.g.
-`~/ea-podman.d/pocnode.<account>.01/`) — using `:rw`. That directory is the
-container's managed home (what `ea-podman` backs up and carries across
-upgrades). Because the `.NN`-suffixed directory name only exists *after*
-`install`, the practical sequence is: install once to learn the container name,
-then `uninstall` and re-`install` with the `-v <managed-dir>/data:/data:rw`
-mount now that you know the path.
+For data that must persist and be **backed up / carried across upgrades**, mount
+from a subdirectory of the per-container managed directory `ea-podman` creates at
+install (`~/ea-podman.d/<container_name>/`) rather than from `$HOME` — that
+directory is the container's managed home. Because the `.NN`-suffixed name only
+exists *after* `install`, the practical sequence is to install once to learn the
+name, then re-`install` with the managed-dir mount.
 
 ### Step 4 — Discover the host port, enable linger, and verify
 
@@ -320,7 +267,8 @@ rm /etc/apache2/conf.d/userdata/std/2_4/<account>/app.<account-domain>/podman-po
   container stops when your session ends. Enable linger explicitly (Step 4).
 - **Don't pass a run command after the image.** `ea-podman` expects the image
   to be the last argument; a trailing command corrupts the publish mapping and
-  the container command. Bake the entry point into the image `CMD` (Step 2).
+  the container command. Pass the start command via `--entrypoint` instead
+  (Step 3).
 - **`ea-podman` gives you a port, not a subdomain.** Subdomain creation, vhost
   wiring, reverse proxy, and SSL are all separate steps.
 - **The host port is stable for the life of the container.** Once the port
