@@ -42,13 +42,16 @@ See [How `ea-podman` install works](#how-ea-podman-install-works) and
 - A **real bash login shell** for the cPanel user (not `jailshell`/`noshell`) —
   see [Connecting](#connecting-use-direct-ssh) below. ✓
 - **`systemd`** present — user-level units supervise the container.
-- **Lingering** (`loginctl enable-linger <user>`) so the user's services survive
-  logout/reboot — **enable it yourself.** Contrary to what you might expect,
-  `ea-podman` only turns linger on in its `su`-fallback path (`util.pm`
-  `ensure_su_login`), which is **skipped when you connect via direct SSH**; after a
-  normal SSH-based install `Linger` stays `no`. ✓ (verified `Linger=no` after an
-  SSH install — long-running containers will not survive logout until you enable
-  it).
+- **Lingering** (`loginctl enable-linger <user>`, as root) so the user's `systemd`
+  manager — and its containers — keep running with no active login session.
+  **Enable it yourself.** Contrary to what you might expect, `ea-podman` only turns
+  linger on in its `su`-fallback path (`util.pm` `ensure_su_login`), which is
+  **skipped when you connect via direct SSH**; after a normal SSH-based install
+  `Linger` stays `no`. ✓ Without it, the user manager runs only while a login
+  session is open, so a long-running container **stops the moment your last SSH
+  session closes** (verified: `Linger=no` after an SSH install, and the container
+  went down — taking a reverse-proxied site to `503` — once the session ended).
+  A one-shot/build container does not need linger; a persistent service does.
 - A **pullable container image** (the PoCs use `docker.io/library/node:20-alpine`).
 
 > Serving-model-specific prerequisites live in the individual PoCs, **not** here:
