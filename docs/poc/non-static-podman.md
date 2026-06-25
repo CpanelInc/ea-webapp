@@ -12,14 +12,10 @@ HTTP server that listens on a published port for the life of the container.
 
 ## What ea-podman does — and what it does not
 
-For what `ea-podman` does in general (install mechanics, ports, lifecycle), see
-the shared [ea-podman overview](./ea-podman.md). What matters for this PoC is
-where its responsibility **ends**:
-
-> a container is running, its container port is published to a host port,
-> and that host port is firewalled via the cPanel port authority.
-
-`ea-podman` does **not**:
+The shared [ea-podman overview](./ea-podman.md) covers what `ea-podman` does
+(install mechanics, ports, lifecycle). What matters for this PoC is where its
+responsibility **ends**: it leaves you with a running container whose port is
+published and firewalled — and nothing in front of it. `ea-podman` does **not**:
 
 - create subdomains,
 - write or modify Apache vhosts,
@@ -32,14 +28,11 @@ subdomain.
 
 ## Prerequisites
 
-See the [ea-podman overview](./ea-podman.md#prerequisites) for the full list
-(EA4 `ea-podman`, user namespaces, subuid/subgid, a real bash login shell,
-`systemd`, the Apache reverse-proxy modules, lingering, and a pullable image).
-Specific to this PoC:
-
-- A **container image whose entry point starts the server** — either a pullable
-  image with a suitable `CMD`, or one you build locally (Step 3). This PoC
-  builds a small image on top of `docker.io/library/node:20-alpine`.
+The shared [ea-podman overview](./ea-podman.md#prerequisites) covers the full
+list. The only PoC-specific point is the entry point: this PoC uses the stock
+`docker.io/library/node:20-alpine` image **as-is** and supplies the long-running
+server command at install time via `--entrypoint` (Step 3) — no custom image and
+no local build.
 
 ## Procedure
 
