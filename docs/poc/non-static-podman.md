@@ -172,7 +172,14 @@ The `podman ps` output shows the published mapping, for example:
 pocnode.<account>.01  0.0.0.0:10001->3000/tcp
 ```
 
-Confirm the server answers on the host port (here `10001`):
+> `ea-podman list` may report **more than one** reserved host port for the
+> container (e.g. `"ports": ["10001","10002"]`). The one that actually serves
+> your app is whichever `podman ps` shows **bound to your container port**
+> (`->3000/tcp`) — don't assume it's the first in the list. Always take the host
+> port from the `podman ps` mapping.
+
+Confirm the server answers on the host port (use the one bound to `->3000/tcp`,
+e.g. `10001`):
 
 ```bash
 curl http://127.0.0.1:10001/
