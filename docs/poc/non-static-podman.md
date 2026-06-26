@@ -10,30 +10,6 @@ identical; the meaningful difference is the container entry point: instead of
 running a one-shot build and exiting, the entry point launches a persistent
 HTTP server that listens on a published port for the life of the container.
 
-## What ea-podman does — and what it does not
-
-The shared [ea-podman overview](./ea-podman.md) covers what `ea-podman` does
-(install mechanics, ports, lifecycle). What matters for this PoC is where its
-responsibility **ends**: it leaves you with a running container whose port is
-published and firewalled — and nothing in front of it. `ea-podman` does **not**:
-
-- create subdomains,
-- write or modify Apache vhosts,
-- set up a reverse proxy, or
-- provision SSL.
-
-The subdomain → container wiring is the **heart of this PoC** and is a
-**separate, manual step** (Step 5). `ea-podman` hands you a host port, not a
-subdomain.
-
-## Prerequisites
-
-The shared [ea-podman overview](./ea-podman.md#prerequisites) covers the full
-list. The only PoC-specific point is the entry point: this PoC uses the stock
-`docker.io/library/node:20-alpine` image **as-is** and supplies the long-running
-server command at install time via `--entrypoint` (Step 3) — no custom image and
-no local build.
-
 ## Procedure
 
 ### Step 0 — Server-side prep (as root) and connect as the cPanel user
@@ -276,8 +252,7 @@ rm /etc/apache2/conf.d/userdata/std/2_4/<account>/app.<account-domain>/podman-po
   `uninstall` that container — `restart`, `stop`/`start`, restore, and upgrade
   all reuse it (`util.pm` `_get_current_ports`). The reverse-proxy include
   hard-codes that port, which only needs updating if you fully uninstall and
-  reinstall (which yields a new assignment). Resolving the port programmatically
-  is still a productization concern — see below.
+  reinstall (which yields a new assignment).
 
 ## Security considerations
 
@@ -287,14 +262,3 @@ least-privilege capabilities, and port-authority firewalling of the published
 port) is in the [ea-podman overview](./ea-podman.md#security-posture). Specific
 to this PoC: do **not** mount the app read-only — a rootless build and most
 long-running workloads need to write, so `:ro` is a non-starter here.
-
-## What productization needs
-
-The only genuinely manual, productization-worthy gap this PoC exposes is the
-**subdomain → container wiring** (Step 5): generating and managing the
-reverse-proxy userdata includes programmatically — including resolving the
-container's published host port at config-build time — and tearing them down on
-subdomain/account removal, mirroring how
-`Cpanel::Config::userdata::PassengerApps` manages per-vhost app config. The rest
-of the lifecycle (port allocation/firewalling, systemd-user supervision, linger,
-backups) is already handled by `ea-podman` and the port authority.
