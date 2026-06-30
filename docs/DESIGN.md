@@ -73,7 +73,9 @@ User should not be able to change these.
 1. **Global** Web App Hub feature available
    * A `/var/cpanel/feature-flags/NAME` file that the API package installs
 1. **Global** [App Types](#app-types) allowed
-   * _Implementation consideration:_ should this also carry a default count per type, used to prefill the user-level count limit below? (Note: that would be a cascade, which this section otherwise avoids.)
+   * _Implementation consideration:_ should this also carry a default count per type, used to prefill the user-level count limit below? (Note: that could become a cascade, which this section otherwise avoids.)
+      * If it just populated the form (and unset users means 0) then this would not cascade.
+      * If unset users defaulted to this then it would cascade. Which do we want (OK, to YAGNI for now)?
 1. **User** Web App Hub feature on or off for user
    * Driven by WHM account packages + feature lists
 1. **User** How many of each [App Type](#app-types) a user is allowed
