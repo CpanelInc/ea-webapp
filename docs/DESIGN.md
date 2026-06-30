@@ -70,9 +70,14 @@ User should not be able to change these.
 
 **Standalone limits** (set at a single level, no cascade).
 
-1. **Global** Web App Hub feature on or off
+1. **Global** Web App Hub feature available
+   * A `/var/cpanel/feature-flags/NAME` file that the API package installs
 1. **Global** [App Types](#app-types) allowed
+   * _Implementation consideration:_ should this also carry a default count per type, used to prefill the user-level count limit below? (Note: that would be a cascade, which this section otherwise avoids.)
+1. **User** Web App Hub feature on or off for user
+   * Driven by WHM account packages + feature lists
 1. **User** How many of each [App Type](#app-types) a user is allowed
+   * _Implementation consideration:_ part of the WHM account package?
 
 ## Domains
 
