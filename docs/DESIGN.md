@@ -12,7 +12,7 @@ This feature is intended to improve the experience of deploying web apps from an
 
 ## Background
 
-This document is distilled from https://webpros.atlassian.net/wiki/spaces/ZC/pages/6692208704/AI+friendly+Web+App+Hub+Technical
+This document is distilled from https://webpros.atlassian.net/wiki/spaces/ZC/pages/6692208704/AI+friendly+Web+Apps+Technical
 
 … which is distilled from the TI’s epic’s descriptions and various discussions
 
@@ -141,7 +141,7 @@ The [API](#api) must return **machine-readable errors** — structured output wi
 
 Each app should have a slug, either given or derived from the zip or git name. That slug is used in the podman name (pod name and directory), the subdomain, and anywhere else we need to refer to it. Because the slug must be a valid subdomain label, its format is constrained to lowercase alphanumerics and hyphens — which also makes it path-safe for use in directory names.
 
-Each app will log to `~/logs/webapps/SLUG.log`. `podman` can do this (and rotate them in real time) using the example flags in [the podman wiki article](https://webpros.atlassian.net/wiki/spaces/ZC/pages/6692208704/AI+friendly+Web+App+Hub+Technical#podman).
+Each app will log to `~/logs/webapps/SLUG.log`. `podman` can do this (and rotate them in real time) using the example flags in [the podman wiki article](https://webpros.atlassian.net/wiki/spaces/ZC/pages/6692208704/AI+friendly+Web+Apps+Technical#podman).
 
 ### Updating an App
 
@@ -167,7 +167,7 @@ Long-running [API](#api) actions (build, deploy, etc.) and app logs need to stre
 
 Other things were evaluated and are problematic for one reason or another.
 
-See https://webpros.atlassian.net/wiki/spaces/ZC/pages/6692208704/AI+friendly+Web+App+Hub+Technical#podman for the benefits of this approach.
+See https://webpros.atlassian.net/wiki/spaces/ZC/pages/6692208704/AI+friendly+Web+Apps+Technical#podman for the benefits of this approach.
 
 ### Adapters
 
