@@ -1,4 +1,4 @@
-# Web App Hub
+# Web Apps
 
 ## This Document
 
@@ -59,7 +59,7 @@ UIs, just like MCPs, will consume the [API](#api). First implementing in `meridi
 
 User should not be able to change these.
 
-> **Note — these limits govern what our system does on a user’s behalf.** They’re the values the [API](#api)/[UI](#ui)/[MCP](#mcp) apply when deploying and managing an app through Web App Hub. A user with normal shell access still has ordinary container operability outside of that — they can run an arbitrary image or container directly, just as they can today, and those aren’t bound by Web App Hub’s limits. That’s expected container behavior, not a gap in this design; we’re noting it so the scope of the limits is clear. (And it may not even arise for WebPros Dashboard users if they can’t log into their cPanel account as a normal user.)
+> **Note — these limits govern what our system does on a user’s behalf.** They’re the values the [API](#api)/[UI](#ui)/[MCP](#mcp) apply when deploying and managing an app through Web Apps. A user with normal shell access still has ordinary container operability outside of that — they can run an arbitrary image or container directly, just as they can today, and those aren’t bound by Web Apps’ limits. That’s expected container behavior, not a gap in this design; we’re noting it so the scope of the limits is clear. (And it may not even arise for WebPros Dashboard users if they can’t log into their cPanel account as a normal user.)
 
 **Cascading resource limits** (CPU and Memory per [App Type](#app-types)). Each level defaults to the next one up, so the effective value resolves in this precedence: **App → User → Global → [Adapter](#adapters) default**. A more specific level overrides the broader one and may set any value, higher or lower.
 
@@ -70,13 +70,13 @@ User should not be able to change these.
 
 **Standalone limits** (set at a single level, no cascade).
 
-1. **Global** Web App Hub feature available
+1. **Global** Web Apps feature available
    * A `/var/cpanel/feature-flags/NAME` file that the API package installs
 1. **Global** [App Types](#app-types) allowed
    * _Implementation consideration:_ should this also carry a default count per type, used to prefill the user-level count limit below? (Note: that could become a cascade, which this section otherwise avoids.)
       * If it just populated the form (and unset users means 0) then this would not cascade.
       * If unset users defaulted to this then it would cascade. Which do we want (OK, to YAGNI for now)?
-1. **User** Web App Hub feature on or off for user
+1. **User** Web Apps feature on or off for user
    * Driven by WHM account packages + feature lists
 1. **User** How many of each [App Type](#app-types) a user is allowed
    * _Implementation consideration:_ part of the WHM account package?
@@ -91,8 +91,8 @@ An app can be deployed to any of three locations:
 
 In every case the target must be free to be used by the app:
 
-* **If the location is not already a Web App Hub app** it may have existing content (e.g. the document root or subdirectory already serves something), so we **warn** that deploying the app will take over that location and any content there.
-* **If the location is already a Web App Hub app**, it is **unavailable** — another app can’t be deployed over it.
+* **If the location is not already a Web Apps app** it may have existing content (e.g. the document root or subdirectory already serves something), so we **warn** that deploying the app will take over that location and any content there.
+* **If the location is already a Web Apps app**, it is **unavailable** — another app can’t be deployed over it.
 
 For anything other than a fresh `<SLUG>.<DOMAIN>`, that warning is paired with an **“I understand” checkbox**, surfaced as an explicit API parameter the caller must set to confirm it’s OK to use the existing location. The [API](#api) refuses the deploy unless that parameter is present.
 
@@ -184,7 +184,7 @@ They will definitely include:
 
 **They must be separate from [API](#api) code/files**.
 
-So separate that they could be managed in their own package without needing to update the [API](#api). Doing them in a separate package, while not required, would make that separation clearer, easier to preserve, and facilitate more rapid maintenance like any upstream-based EA4 pkg (after initial release the [API](#api) will rarely update but the adapters will regularly change). If we want to do that initially or sometime later we will use `ea-web-app-hub`.
+So separate that they could be managed in their own package without needing to update the [API](#api). Doing them in a separate package, while not required, would make that separation clearer, easier to preserve, and facilitate more rapid maintenance like any upstream-based EA4 pkg (after initial release the [API](#api) will rarely update but the adapters will regularly change). If we want to do that initially or sometime later we will use `ea-webapp`.
 
 **They must be extendable by 3rd parties and admins**.
 
