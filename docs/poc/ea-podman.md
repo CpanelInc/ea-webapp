@@ -1,19 +1,21 @@
 # ea-podman overview (shared reference for the web-app PoCs)
 
 `ea-podman` is cPanel's wrapper around **rootless podman**: it lets a cPanel user
-run a container under their own unprivileged account, supervised by a per-user
-`systemd` unit. This document collects the universal `ea-podman` material that
-both proofs of concept rely on:
+run a container under their own unprivileged account, each container supervised by
+its own user-level `systemd` unit. This document collects the universal
+`ea-podman` material that both proofs of concept rely on:
 
-- the [static (build-only) PoC](./static-podman.md) (CPANEL-53969), and
-- the [non-static (long-running) PoC](./non-static-podman.md) (CPANEL-53968).
+- the [static-backend PoC](./static-podman.md) (CPANEL-53969) — serves pre-built
+  files, and
+- the [non-static PoC](./non-static-podman.md) (CPANEL-53968) — runs an
+  application server.
 
 Each PoC links here for prerequisites, install mechanics, the direct-SSH
 requirement, and the security posture, and documents only what is specific to its
 serving model.
 
 > **Provenance.** Everything here is validated against the `ea-podman` source
-> (`SOURCES/ea-podman.pl`, `SOURCES/util.pm` in `github.com/CpanelInc/ea-podman`;
+> (`SOURCES/ea-podman.pl`, `SOURCES/util.pm` in `github.com/webpros-cpanel/ea-podman`;
 > paths below refer to the installed `…/lib/ea_podman/util.pm`). Facts marked **✓**
 > were additionally **exercised on a live cPanel server** while running the static
 > PoC; unmarked facts are source-validated only.
@@ -23,12 +25,14 @@ serving model.
 `ea-podman` lets a cPanel user run a container under their own unprivileged
 account, managed much like an EA4 package. Given an image, `install`:
 
-- registers and names the container and creates its per-user directory,
-- allocates any requested container port to a host port via the cPanel port
-  authority,
+- registers and names the container and creates its own directory under the
+  user's `~/ea-podman.d/`,
+- allocates a host port for **each** container port it publishes — which may be
+  none, one, or several — via the cPanel port authority,
 - persists the container's configuration, and
-- supervises the container with a per-user `systemd` unit, exposing lifecycle
-  commands (`start`/`stop`/`restart`/`status`/`backup`/…).
+- supervises the container with its **own** user-level `systemd` unit for
+  lifecycle operations (`start`/`stop`/`restart`/`status`). `ea-podman`'s own
+  management commands (`backup`/`restore`/`upgrade`/…) are separate from that unit.
 
 See [How `ea-podman` install works](#how-ea-podman-install-works) and
 [Lifecycle and subcommands](#lifecycle-and-subcommands) below for the details.
@@ -63,24 +67,29 @@ See [How `ea-podman` install works](#how-ea-podman-install-works) and
   published host port with the same Apache reverse-proxy include (`ProxyPass` /
   `ProxyPassReverse` plus a `RequestHeader` for `X-Forwarded-Proto`), so all
   three are required. Confirmed loaded on the live server ✓.
-- **Lingering** (`loginctl enable-linger <user>`, as root) so the user's `systemd`
-  manager — and its containers — keep running with no active login session.
-  **Enable it yourself.** Contrary to what you might expect, `ea-podman` only turns
-  linger on in its `su`-fallback path (`util.pm` `ensure_su_login`), which is
-  **skipped when you connect via direct SSH**; after a normal SSH-based install
-  `Linger` stays `no`. ✓ Without it, the user manager runs only while a login
-  session is open, so a long-running container **stops the moment your last SSH
-  session closes** (verified: `Linger=no` after an SSH install, and the container
-  went down — taking a reverse-proxied site to `503` — once the session ended).
-  A purely one-shot/build container would not need linger; the persistent
-  services in **both** PoCs do.
+- **Lingering** (`loginctl enable-linger <user>`, as root). `ea-podman` runs each
+  container as a unit of the cPanel user's `systemd --user` manager
+  (`user@<uid>.service`), which only runs while the user has a login session
+  **unless lingering is enabled**. A persistent container therefore **needs
+  linger**: without it, the container stops once the user's last login session
+  closes (within seconds), taking any reverse-proxied site down to `503`. ✓
+  (Verified live: with `Linger=no` and no active session the user manager goes
+  `inactive` and the published port stops answering within seconds.)
+
+  `ea-podman` **enables linger for you automatically** — but only in
+  `ensure_su_login`, and only when `XDG_RUNTIME_DIR` is **unset**, i.e. when it is
+  invoked **without a login session**. That is how the product drives it:
+  `su - <user> -c '…'`, or a root cPanel/WHM hook or adminbin dropping privileges
+  via `Cpanel::AccessIds` (both verified to run with `XDG_RUNTIME_DIR` empty). ✓
+  **This PoC is the exception:** on **direct SSH**, `pam_systemd` has already set
+  `XDG_RUNTIME_DIR`, so `ensure_su_login` no-ops and a fresh install leaves
+  `Linger=no`. So **in this PoC you enable linger yourself** (see the PoC's
+  Step 0); in the product it is handled for you.
 - A **pullable container image** (the PoCs use `docker.io/library/node:20-alpine`).
 
-> A few prerequisites are **specific to one PoC** and stay in its doc: the
-> **static** PoC needs outbound access to the package registry (its build runs
-> `npm install`), and the **non-static** PoC builds a local image, which requires
-> the user's `subuid`/`subgid` ranges to exist *before* the first `podman` command
-> (run `ea-podman subids --ensure` first).
+> One prerequisite is **specific to a single PoC** and stays in its doc: the
+> **static** PoC needs outbound access to the package registry, because its build
+> runs `npm install`.
 
 ## Connecting: use direct SSH
 
@@ -131,7 +140,9 @@ or versions. Two rules apply:
 `-h`/`--hostname`, `--name`, `--rm`/`--rmi`/`--replace`, and `-i`/`-t`. Publishing
 and hostnames/names are handled by `ea-podman`; detach, removal, and interactive
 TTY flags are inappropriate for systemd-supervised containers (the source notes
-these are for long-running services, not one-offs).
+these are for long-running services, not one-offs). This list reflects
+`validate_start_args` at the time of writing — treat the source (or
+`ea-podman help`) as authoritative if it changes.
 
 ## How `ea-podman install` works
 
@@ -154,9 +165,9 @@ it yourself if the container must survive logout. A few more consequences:
 
 - **The per-container directory is the container's managed home.** App
   files/bind-mount sources are meant to live inside `~/ea-podman.d/<container>/`
-  so they are captured by `ea-podman backup` and carried across upgrades. Because
-  that directory does not exist until `install` runs, staging source into it and
-  running the workload are necessarily part of the same step.
+  so they travel with the container across upgrades. Because that directory does
+  not exist until `install` runs, staging source into it and running the workload
+  are necessarily part of the same step.
 - **`--restart-policy on-failure` means a clean exit is final.** A container whose
   process exits `0` (e.g. a one-shot build) is **not** restarted; its user service
   simply goes inactive. ✓
@@ -196,33 +207,23 @@ reverse-proxied to a subdomain**, so the points below apply to both.
 
 ## Lifecycle and subcommands
 
-| Command | Purpose |
-| --- | --- |
-| `install` (`in`) | Register + create + start a container. |
-| `uninstall` (`un`) | Remove a container. **Requires `--verify`.** ✓ |
-| `list` (`li`, `running`) | List **running** containers and their ports. ✓ |
-| `containers` (`registered`) | List **all registered** containers (incl. stopped). ✓ |
-| `status` (`stat`) | `systemctl --user status` for the container's unit. ✓ |
-| `start` / `stop` / `restart` | Lifecycle via the user systemd unit. ✓ |
-| `upgrade` (`up`) | Re-pull/re-create at the latest image. |
-| `bash` | Shell/run a command in a **running** container. ✓ |
-| `backup` / `restore` | Back up / restore the user's container state. |
-| `subids` (`sid`, `si`) `[--ensure]` | Report (or ensure) subuid/subgid setup. ✓ |
-| `avail` (`av`) | List available EA4 container-based packages. ✓ |
+`ea-podman` exposes the usual lifecycle subcommands — `install`, `uninstall`,
+`list`/`containers`, `status`, `start`/`stop`/`restart`, `upgrade`,
+`backup`/`restore`, `subids`, and more. Run **`ea-podman help`** (or
+`ea-podman hint`) for the authoritative, current list; it changes as subcommands
+are added, so this doc does not enumerate it.
 
-Notes:
+A few non-obvious behaviors worth knowing (all verified ✓):
 
 - **`list` shows only running containers** (it wraps `podman ps` without `-a`), so
-  a stopped/exited container is absent there — use `ea-podman containers` to see
-  it. ✓
+  a stopped/exited container is absent there — use `ea-podman containers` to see it.
 - **`uninstall` requires `--verify`** and does not hard-delete: it removes the
   systemd unit and unregisters the container, then **renames**
   `~/ea-podman.d/<container>/` to `<container>.bak`. Remove the `.bak` separately
-  if you want it gone. ✓
+  if you want it gone.
 - **`bash` invokes `/bin/bash` inside the container**, so it only works if the
   image actually ships bash — on `node:20-alpine` (BusyBox `sh` only) it errors
-  with *"executable file `/bin/bash` not found"*. ✓
-- **`backup` writes a tarball** to `~/ea-podman-backups/backup-<timestamp>.tar.gz`. ✓
+  with *"executable file `/bin/bash` not found"*.
 
 ## File ownership (rootless mapping)
 
@@ -232,13 +233,6 @@ stock images like `node` default to root) so files the container writes —
 build output, logs, uploads — are owned by the cPanel user and are directly
 usable by Apache and the account. A **non-root in-container UID** writes files
 owned by a mapped **`subuid`**, which the bare cPanel user cannot read or serve.
-
-## Backups
-
-Containers are **excluded from normal cPanel account backups**; use
-`ea-podman backup` / `ea-podman restore` for container state. Files the container
-writes into the account's home tree (for example a subdomain document root) are
-ordinary files and **are** captured by normal account backups.
 
 ## Security posture
 

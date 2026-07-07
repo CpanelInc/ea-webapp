@@ -43,7 +43,7 @@ files (the build output) rather than running an application server.
 - **Single subdomain.** `--pod` / custom-network topologies (ZC-9688) are **out
   of scope**.
 - **Authoritative source:** validated against the `ea-podman` source
-  (`SOURCES/ea-podman.pl`, `SOURCES/util.pm`) in `github.com/CpanelInc/ea-podman`,
+  (`SOURCES/ea-podman.pl`, `SOURCES/util.pm`) in `github.com/webpros-cpanel/ea-podman`,
   and **executed end to end on a live cPanel server** — build, persistent serve on
   the published port, Apache reverse proxy, and HTTPS through the proxy were all
   exercised.
@@ -57,11 +57,13 @@ PoC:
 
 - **Outbound npm-registry access** — the build runs `npm install` to fetch the
   TypeScript compiler.
-- **This is a long-running container, so linger matters here.** Enable linger
-  (Step 0) **or** keep an SSH session open for as long as the site must stay up;
-  without it the container — and the site — stops the moment your **last SSH
-  session closes** and the proxy returns **503**. (Full rationale in the
-  overview.)
+- **Enabling linger is a manual step _here_ because this PoC uses direct SSH.**
+  This is a long-running container, so it needs linger to survive logout: enable it
+  (Step 0) **or** keep an SSH session open for as long as the site must stay up, or
+  the container — and the site — stops once your **last SSH session closes** and
+  the proxy returns **503**. `ea-podman` enables linger itself when driven without a
+  login session (as the product does); direct SSH is the exception — see the
+  overview.
 
 ## Procedure
 
@@ -79,10 +81,13 @@ running after you disconnect (run as root):
 loginctl enable-linger cptest1
 ```
 
-> Without linger, the container stops as soon as your **last SSH session ends**
-> (the user's `systemd` manager shuts down with the session), and the site starts
-> returning **503**. If you skip linger, you must keep an SSH session open for the
-> whole time the site needs to be reachable.
+> **Why this step is manual here:** on direct SSH, `ea-podman` does not enable
+> linger for you — it only does so when invoked **without** a login session (the
+> `su -` / hook / adminbin paths the product uses; see the overview). Without
+> linger, the container stops once your **last SSH session ends** (the user's
+> `systemd` manager shuts down with the session) and the site returns **503**; if
+> you skip it, you must keep an SSH session open the whole time the site needs to
+> be reachable.
 
 ### Step 1 — Create the subdomain
 
@@ -300,31 +305,25 @@ rm /etc/apache2/conf.d/userdata/std/2_4/cptest1/app.example.com/podman-poc.conf
 
 ## Gotchas
 
-- **A long-running container needs linger.** `ea-podman` does not enable it on the
-  direct-SSH path, and the user's `systemd` manager runs only while a login session
-  is open — so the container dies the moment your **last SSH session ends** and the
-  proxy returns **503**. Enable linger (Step 0) or keep a session open for as long
-  as the site must stay up (see the overview).
 - **Build-and-serve in one entrypoint rebuilds on every (re)start.** The user
   systemd unit re-runs the whole `npm install && build && serve` chain each time
   it starts — **including on each login** (a login restarts the user's enabled
   units), causing a brief (~seconds) rebuild outage during which the proxy returns
   **503**. The `npm install`+`tsc` step is also memory-hungry and was observed to
-  OOM-kill the container (`Exited (137)`) under restart churn. **Productization
-  should separate the one-time build from a stable, low-overhead static server**
+  OOM-kill the container (`Exited (137)`) under restart churn. A real deployment
+  would separate the one-time build from a stable, low-overhead static server
   rather than rebuilding on every start.
-- **Common long-running-service requirements are in the
-  [overview](./ea-podman.md#ports):** the server must bind `0.0.0.0` (not the
-  container's `127.0.0.1`) or the published host port can't reach it, and the
-  proxy include must set `X-Forwarded-Proto`.
+- **Common long-running-service requirements live in the
+  [overview](./ea-podman.md):** the container needs **linger** (or an SSH session
+  kept open) to survive logout, the in-container server must bind `0.0.0.0` (not
+  `127.0.0.1`) or the published host port can't reach it, and the proxy include
+  must set `X-Forwarded-Proto`.
 - **The proxy only works while the container is serving.** Apache reaches the
   rootless-published port on the host loopback (verified), but only when the
   container is up and past its rebuild; otherwise expect `503`.
 - **The include hard-codes the host port.** The authority keeps a container's port
   fixed for its life and releases it on uninstall, but recreating the container can
-  change it, breaking the include until updated (a productization concern).
-- **Containers are excluded from normal cPanel backups.** Use `ea-podman backup`;
-  the app/build live in the container, not under `public_html`.
+  change it, breaking the include until updated.
 
 ## Security considerations
 
@@ -333,15 +332,3 @@ risk-flag gate, least privilege) is in the [ea-podman overview](./ea-podman.md).
 Specific to this PoC: the only exposed surface is the single published host port,
 which the cPanel port authority allocates and firewalls, reached only via the
 Apache reverse proxy.
-
-## What productization needs
-
-The main gap a shipped static-app path must close is a **real build sandbox**
-(epic CPANEL-53922 §13.6): ephemeral per build, resource-capped, with outbound
-network restricted to package registries, isolated from other tenants, and
-**discard-on-failure** so a failed build leaves the live site untouched. Beyond
-that it would: **separate the one-time build from a stable static server** (not
-rebuild on every start); **manage the proxy wiring and host-port indirection as
-code** (resolve the current port at config-build time instead of hard-coding it);
-and tear down the container, its systemd unit, and the Apache includes
-automatically on removal.
