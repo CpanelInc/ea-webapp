@@ -220,6 +220,11 @@ ea-podman install pocstatic \
 - `-e PORT=3000` matches the port `serve.js` listens on.
 - `-v "$HOME/static-srv:/src"` mounts the project **read-write** (so `npm install`
   can write `node_modules` and the build can write `dist/`). Do **not** use `:ro`.
+  > In the shipped product the app's source would instead live in the container's
+  > own `~/ea-podman.d/<container>/` directory (see the
+  > [overview](./ea-podman.md#how-ea-podman-install-works)) so it travels with the
+  > container; this PoC bind-mounts `~/static-srv` only because that per-container
+  > directory does not exist until `install` runs.
 - The image must be **last**; the build+serve command is passed via
   `--entrypoint` in JSON form (see
   [the overview](./ea-podman.md#running-an-arbitrary-image) for why).

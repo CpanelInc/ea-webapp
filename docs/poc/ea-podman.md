@@ -207,11 +207,9 @@ reverse-proxied to a subdomain**, so the points below apply to both.
 
 ## Lifecycle and subcommands
 
-`ea-podman` exposes the usual lifecycle subcommands — `install`, `uninstall`,
-`list`/`containers`, `status`, `start`/`stop`/`restart`, `upgrade`,
-`backup`/`restore`, `subids`, and more. Run **`ea-podman help`** (or
-`ea-podman hint`) for the authoritative, current list; it changes as subcommands
-are added, so this doc does not enumerate it.
+`ea-podman` exposes the usual lifecycle and management subcommands. The set
+changes as new ones are added, so rather than enumerate it here, run
+**`ea-podman help`** (or `ea-podman hint`) for the authoritative, current list.
 
 A few non-obvious behaviors worth knowing (all verified ✓):
 
