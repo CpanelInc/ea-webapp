@@ -180,35 +180,14 @@ systemctl --user status 'container-pocnode*'   # user unit is enabled + active
 ### Step 5 — Wire the subdomain to the container (Option A, as root)
 
 `ea-podman` gave you a host port; now connect `app.<account-domain>` (the
-subdomain created in Step 1) to it. Create a **root-owned Apache userdata
-reverse-proxy include** for **both** the SSL (`2_4`) and non-SSL vhost paths.
-Substitute the account's own domain for `<account-domain>` below.
+subdomain created in Step 1) to it with a root-owned Apache reverse-proxy
+include. This is the shared wiring documented in
+[Reverse-proxying a subdomain to the published port](./ea-podman.md#reverse-proxying-a-subdomain-to-the-published-port)
+in the overview — follow it with these substitutions:
 
-SSL path — `/etc/apache2/conf.d/userdata/ssl/2_4/<account>/app.<account-domain>/podman-poc.conf`:
-
-```apache
-ProxyPreserveHost On
-ProxyPass        / http://127.0.0.1:10001/
-ProxyPassReverse / http://127.0.0.1:10001/
-RequestHeader set X-Forwarded-Proto "https"
-```
-
-Create the equivalent non-SSL include under the standard (non-`ssl`) userdata
-path as well:
-`/etc/apache2/conf.d/userdata/std/2_4/<account>/app.<account-domain>/podman-poc.conf`
-(use the same body; you may keep `X-Forwarded-Proto "http"` there, or drop the
-header on the non-SSL path).
-
-> Replace `10001` with the actual host port from Step 4, and `<account-domain>`
-> with the account's domain from Step 1.
-
-Apply the includes and rebuild Apache:
-
-```bash
-/usr/local/cpanel/scripts/ensure_vhost_includes --user=<account>
-/usr/local/cpanel/scripts/rebuildhttpdconf
-/scripts/restartsrv_httpd
-```
+- `<user>` → `<account>`
+- `<subdomain>` → `app.<account-domain>`
+- `<host-port>` → the host port from Step 4 (e.g. `10001`)
 
 ### Step 6 — Verify HTTPS end to end
 
@@ -233,14 +212,9 @@ ea-podman stop    pocnode.<account>.01
 ea-podman uninstall pocnode.<account>.01
 ```
 
-To **detach** the subdomain, remove the Apache include(s) and rebuild:
-
-```bash
-rm /etc/apache2/conf.d/userdata/ssl/2_4/<account>/app.<account-domain>/podman-poc.conf
-rm /etc/apache2/conf.d/userdata/std/2_4/<account>/app.<account-domain>/podman-poc.conf
-/usr/local/cpanel/scripts/rebuildhttpdconf
-/scripts/restartsrv_httpd
-```
+To **detach** the subdomain, remove the Apache includes and rebuild — see
+[Reverse-proxying a subdomain to the published port](./ea-podman.md#reverse-proxying-a-subdomain-to-the-published-port)
+in the overview (same substitutions as Step 5).
 
 ## Gotchas
 
