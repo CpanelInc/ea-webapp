@@ -118,17 +118,22 @@ ea-podman install pocnode \
   [Running an arbitrary image](./ea-podman.md#running-an-arbitrary-image).
 - `--i-understand-the-risks-do-it-anyway` is required because the stock image is
   an arbitrary (non-package) image.
-- No `-p`, `-d`, `--name`, etc. — `ea-podman` manages those (see the overview's
-  [disallowed passthrough arguments](./ea-podman.md#disallowed-passthrough-arguments)).
+- Don't pass the flags `ea-podman` manages itself (publishing, naming,
+  detach/TTY, and so on) — it rejects them in the start args. The overview's
+  [disallowed passthrough arguments](./ea-podman.md#disallowed-passthrough-arguments)
+  has the authoritative, current list, so it can't drift out of sync here.
 
-For data that must persist and be **backed up / carried across upgrades**, mount
-from a subdirectory of the per-container managed directory `ea-podman` creates at
-install (`~/ea-podman.d/<container_name>/`) rather than from `$HOME` — that
-directory is the container's managed home. Because the `.NN`-suffixed name only
-exists *after* `install`, the practical sequence is to install once to learn the
-name, then re-`install` with the managed-dir mount.
+This PoC mounts the app straight from `$HOME` to keep the steps simple. For data
+that must persist and be **backed up / carried across upgrades** — and where the
+shipped product will keep the app's own source — mount instead from the
+per-container managed directory `ea-podman` creates at install
+(`~/ea-podman.d/<container_name>/`), the container's managed home (see
+[How ea-podman install works](./ea-podman.md#how-ea-podman-install-works) in the
+overview). Because the `.NN`-suffixed name only exists *after* `install`, the
+practical sequence is to install once to learn the name, then re-`install` with
+the managed-dir mount.
 
-### Step 4 — Discover the host port, enable linger, and verify
+### Step 4 — Discover the host port, check linger, and verify
 
 ```bash
 ea-podman list
@@ -154,10 +159,11 @@ e.g. `10001`):
 curl http://127.0.0.1:10001/
 ```
 
-**Enable linger** so the container survives logout and reboot. `ea-podman`
-does **not** do this on the direct-SSH path, so the user systemd scope (and the
-container with it) is torn down when your session ends — the container will
-appear to "randomly" stop. Enabling linger requires root:
+**Check linger** so the container survives logout and reboot. `ea-podman`
+normally enables this for you, so you shouldn't have to — but if it didn't, the
+user systemd scope (and the container with it) is torn down when your session
+ends and the container will appear to "randomly" stop. If linger is off, enable
+it (this requires root):
 
 ```bash
 # as root:
@@ -238,21 +244,22 @@ rm /etc/apache2/conf.d/userdata/std/2_4/<account>/app.<account-domain>/podman-po
 
 ## Gotchas
 
-- **Linger is not enabled for you.** Because direct SSH already sets
-  `XDG_RUNTIME_DIR`, `ea-podman` skips its `loginctl enable-linger` call, so the
-  container stops when your session ends. Enable linger explicitly (Step 4).
-- **Don't pass a run command after the image.** `ea-podman` expects the image
-  to be the last argument; a trailing command corrupts the publish mapping and
-  the container command. Pass the start command via `--entrypoint` instead
-  (Step 3).
+These are the surprises specific to wiring a subdomain to a container on this
+direct-SSH PoC path. The universal `ea-podman` behaviors behind them — linger,
+argument ordering, and host-port stability — live in the
+[ea-podman overview](./ea-podman.md) rather than being repeated here.
+
+- **You may need to check linger, but shouldn't have to.** `ea-podman` normally
+  enables it for you; if it didn't, the container stops when your session ends,
+  so verify it and enable it if needed (Step 4). The overview's
+  [Prerequisites](./ea-podman.md#prerequisites) explain why.
 - **`ea-podman` gives you a port, not a subdomain.** Subdomain creation, vhost
-  wiring, reverse proxy, and SSL are all separate steps.
-- **The host port is stable for the life of the container.** Once the port
-  authority assigns a host port to a container it stays assigned until you
-  `uninstall` that container — `restart`, `stop`/`start`, restore, and upgrade
-  all reuse it (`util.pm` `_get_current_ports`). The reverse-proxy include
-  hard-codes that port, which only needs updating if you fully uninstall and
-  reinstall (which yields a new assignment).
+  wiring, reverse proxy, and SSL are all separate, manual steps (Steps 1 and 5) —
+  that wiring is the whole point of this PoC.
+- **The reverse-proxy include hard-codes the host port.** That's safe because the
+  port stays assigned for the life of the container (see
+  [Ports](./ea-podman.md#ports)); you only need to update the include if you fully
+  uninstall and reinstall.
 
 ## Security considerations
 
