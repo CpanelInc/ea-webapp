@@ -205,6 +205,55 @@ reverse-proxied to a subdomain**, so the points below apply to both.
   to instead — anywhere a published port works, a socket works just as well. (Per
   the `ea-podman` maintainers; not exercised in these PoCs.)
 
+## Reverse-proxying a subdomain to the published port
+
+`ea-podman` gives you a **published host port**, not a subdomain — subdomain
+creation, vhost wiring, the reverse proxy, and SSL are all separate, manual
+steps. Both PoCs connect the subdomain to the container the same way: a
+**root-owned Apache userdata reverse-proxy include** on both the SSL and non-SSL
+vhost paths, pointing at the host port the port authority assigned (discover it
+per [Ports](#ports)). This is that shared recipe; each PoC supplies only its own
+account, domain, and host port.
+
+Create the include for the SSL (`2_4`) vhost path —
+`/etc/apache2/conf.d/userdata/ssl/2_4/<user>/<subdomain>/podman-poc.conf`:
+
+```apache
+ProxyPreserveHost On
+ProxyPass        / http://127.0.0.1:<host-port>/
+ProxyPassReverse / http://127.0.0.1:<host-port>/
+RequestHeader set X-Forwarded-Proto "https"
+```
+
+Create the equivalent include under the standard (non-`ssl`) userdata path as
+well —
+`/etc/apache2/conf.d/userdata/std/2_4/<user>/<subdomain>/podman-poc.conf`
+(same body; you may keep `X-Forwarded-Proto "http"` there, or drop the header on
+the non-SSL path).
+
+> Replace `<host-port>` with the actual assigned host port, and `<user>` /
+> `<subdomain>` with the account and subdomain. The include **hard-codes the host
+> port**, which is safe because the authority keeps it fixed for the life of the
+> container (see [Ports](#ports)) — you only need to update the include if you
+> fully uninstall and reinstall.
+
+Apply the includes and rebuild Apache (as root):
+
+```bash
+/usr/local/cpanel/scripts/ensure_vhost_includes --user=<user>
+/usr/local/cpanel/scripts/rebuildhttpdconf
+/scripts/restartsrv_httpd
+```
+
+To **detach** the subdomain, remove both includes and rebuild (as root):
+
+```bash
+rm /etc/apache2/conf.d/userdata/ssl/2_4/<user>/<subdomain>/podman-poc.conf
+rm /etc/apache2/conf.d/userdata/std/2_4/<user>/<subdomain>/podman-poc.conf
+/usr/local/cpanel/scripts/rebuildhttpdconf
+/scripts/restartsrv_httpd
+```
+
 ## Lifecycle and subcommands
 
 `ea-podman` exposes the usual lifecycle and management subcommands. The set
