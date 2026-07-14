@@ -86,8 +86,8 @@ User should not be able to change these.
 An app can be deployed to any of three locations:
 
 * `<SLUG>.<DOMAIN>` — a subdomain whose label is the app’s [slug](#general-flow). **Preferred/default.**
-* `<DOMAIN>/<URI>` — a subdirectory of an existing domain.
-* `<DOMAIN>` — the root of an existing domain.
+* `<DOMAIN>/<URI>` — a subdirectory of an existing domain. (Will be later CPANEL-54663)
+* `<DOMAIN>` — the root of an existing domain. (Will be later CPANEL-54662)
 
 In every case the target must be free to be used by the app:
 
