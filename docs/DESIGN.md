@@ -57,29 +57,40 @@ UIs, just like MCPs, will consume the [API](#api). First implementing in `meridi
 
 ## Limits
 
-User should not be able to change these.
+Users cannot change their resource totals or anything that sets them. Within their total, a user chooses how much each of their apps gets.
 
 > **Note — these limits govern what our system does on a user’s behalf.** They’re the values the [API](#api)/[UI](#ui)/[MCP](#mcp) apply when deploying and managing an app through Web Apps. A user with normal shell access still has ordinary container operability outside of that — they can run an arbitrary image or container directly, just as they can today, and those aren’t bound by Web Apps’ limits. That’s expected container behavior, not a gap in this design; we’re noting it so the scope of the limits is clear. (And it may not even arise for WebPros Dashboard users if they can’t log into their cPanel account as a normal user.)
 
-**Cascading resource limits** (CPU and Memory). Each level defaults to the next one up, so the effective value resolves in this precedence: **App → User → Global → Default**. A more specific level overrides the broader one and may set any value, higher or lower.
+### Resource limits
 
-**[Adapter](#adapters)** specifiy recommended minimum CPU and Memory for the [App Type](#app-types). if not enough is available for an instance this would do a warning.
+The resources are **CPU** and **Memory**. Where a resource has both a hard and a soft limit, we support both, and each is tracked on its own: hard allocations count against the hard total, soft against the soft total.
 
-If there is a hard and soft verison of a limit we should support both.
+**Total per user.** Each level defaults to the one above it, so the effective total resolves in this precedence: **User → Global → Default**. A more specific level overrides a broader one and may set any value, higher or lower.
 
-1. **Default** default CPU and Memory total per user
-1. **Global** default CPU and Memory per user total for this server
-1. **User** default CPU and Memory for this user total
-1. **App** CPU and Memory of a specific _instance_. This usage, aggreagted, woulc go against total.
+1. **Default** — the built-in total per user, shipped with Web Apps.
+1. **Global** — this server’s total per user.
+1. **User** — this user’s total.
 
-App count is irrelevant: e.g. 1 app that hits total then the user gets no more, if they have 50 that are under the totals they can do another as long as it does not push them over their total limits.
+**Allocation per app.** Every app _instance_ has its own CPU and Memory setting, which the user chooses from their remaining total. An app without a setting should never exist; if one does, it is a bug, not a state to handle with a fallback.
 
-**Standalone limits** (set at a single level, no cascade).
+* **Usage** is the sum of the configured per-app settings, not measured consumption.
+* **Deploying** is allowed only when the app’s setting fits within the remaining total (total minus usage). Otherwise the deploy is refused.
+* An allocation counts toward usage as soon as a deploy is requested, so queued or concurrent deploys cannot together exceed the total.
+* **Lowering a total** below current usage does not stop running apps. The overage is flagged, and new deploys are blocked until usage fits within the total again.
+* Every value must be positive, and a soft limit may not exceed its hard limit.
 
-1. **Global** Web Apps feature available
-   * A `/var/cpanel/feature-flags/NAME` file that the API package installs
-1. **User** Web Apps feature on or off for user
-   * Driven by WHM account packages + feature lists
+**App count is irrelevant.** A user whose one app uses their whole total can deploy no more; a user with 50 apps under their totals can deploy another as long as it fits.
+
+**[Adapter](#adapters) recommendations.** Each adapter specifies a recommended minimum CPU and Memory for its [App Type](#app-types). If an app’s setting is below that minimum, or the remaining total can’t cover it, the user is warned. The recommendation is advice: it does not block a deploy that otherwise fits.
+
+### Standalone limits
+
+Set at a single level, no cascade.
+
+1. **Global** — Web Apps feature available on this server.
+   * A `/var/cpanel/feature-flags/NAME` file that the API package installs.
+1. **User** — Web Apps feature on or off for this user.
+   * Driven by WHM account packages + feature lists.
 
 ## Domains
 
