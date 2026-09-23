@@ -69,7 +69,7 @@ The resources are **CPU** and **Memory**. Where a resource has both a hard and a
 
 1. **Default** — the built-in total per user, shipped with Web Apps.
 1. **Global** — this server’s total per user.
-1. **User** — this user’s total.
+1. **User** — this user’s total, set on their WHM account package.
 
 **Allocation per app.** Every app _instance_ has its own CPU and Memory setting, which the user chooses from their remaining total. An app without a setting should never exist; if one does, it is a bug, not a state to handle with a fallback.
 
