@@ -57,9 +57,11 @@ UIs, just like MCPs, will consume the [API](#api). First implementing in `meridi
 
 ## Limits
 
-Users cannot change their resource totals or anything that sets them. Within their total, a user chooses how much each of their apps gets.
+Users cannot change their resource totals, their app count, or anything that sets them. Within their total, a user chooses how much each of their apps gets.
 
 > **Note — these limits govern what our system does on a user’s behalf.** They’re the values the [API](#api)/[UI](#ui)/[MCP](#mcp) apply when deploying and managing an app through Web Apps. A user with normal shell access still has ordinary container operability outside of that — they can run an arbitrary image or container directly, just as they can today, and those aren’t bound by Web Apps’ limits. That’s expected container behavior, not a gap in this design; we’re noting it so the scope of the limits is clear. (And it may not even arise for WebPros Dashboard users if they can’t log into their cPanel account as a normal user.)
+
+There are no limits per [App Type](#app-types): the type does not matter, only the resources and ports an app uses.
 
 ### Resource limits
 
@@ -75,21 +77,28 @@ The resources are **CPU** and **Memory**. Where a resource has both a hard and a
 
 * **Usage** is the sum of the configured per-app settings, not measured consumption.
 * **Deploying** is allowed only when the app’s setting fits within the remaining total (total minus usage). Otherwise the deploy is refused.
+* **Changing** an app’s setting is allowed only when the new value fits within the remaining total, counting that app’s current allocation as available.
 * An allocation counts toward usage as soon as a deploy is requested, so queued or concurrent deploys cannot together exceed the total.
+* Deleting an app releases its allocation. A reservation made when a deploy is requested is released if that deploy fails or is cancelled.
 * **Lowering a total** below current usage does not stop running apps. The overage is flagged, and new deploys are blocked until usage fits within the total again.
 * Every value must be positive, and a soft limit may not exceed its hard limit.
 
-**App count.** App count doesn’t govern resources — the totals above do. It is limited only because each app uses a port from a pool shared by every account on the server, so one account must not be able to exhaust it. Resolves in this precedence: **User → Global → Default**.
+### App count
+
+App count doesn’t govern resources — the totals above do. It is limited only because each app uses a port from a pool shared by every account on the server, so one account must not be able to exhaust it. Resolves in this precedence: **User → Global → Default**.
 
 1. **Default** — the built-in maximum apps per user, shipped with Web Apps.
 1. **Global** — this server’s maximum apps per user.
 1. **User** — this user’s maximum, set on their WHM account package.
 
-A slot counts as used as soon as a deploy is requested. If the server’s port pool is exhausted, the deploy fails with a clear error even when the user is under their count.
+* A slot counts as used as soon as a deploy is requested.
+* Deleting an app releases its slot. A slot reserved for a deploy is released if that deploy fails or is cancelled.
+* **Lowering a maximum** below the current count does not stop running apps. New deploys are blocked until the count is back under it.
+* If the server’s port pool is exhausted, the deploy fails with a clear error even when the user is under their count.
 
-No need for limits per [App Type](#app-types) since type doe snot matter, only resources do.
+### Adapter recommendations
 
-**[Adapter](#adapters) recommendations.** Each adapter specifies a recommended minimum CPU and Memory for its [App Type](#app-types). If an app’s setting is below that minimum, or the remaining total can’t cover it, the user is warned. The recommendation is advice: it does not block a deploy that otherwise fits.
+Each [Adapter](#adapters) specifies a recommended minimum CPU and Memory for its [App Type](#app-types). If an app’s setting is below that minimum, or the remaining total can’t cover it, the user is warned. The recommendation is advice: it does not block a deploy that otherwise fits.
 
 ### Standalone limits
 
