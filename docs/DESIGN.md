@@ -61,12 +61,16 @@ User should not be able to change these.
 
 > **Note — these limits govern what our system does on a user’s behalf.** They’re the values the [API](#api)/[UI](#ui)/[MCP](#mcp) apply when deploying and managing an app through Web Apps. A user with normal shell access still has ordinary container operability outside of that — they can run an arbitrary image or container directly, just as they can today, and those aren’t bound by Web Apps’ limits. That’s expected container behavior, not a gap in this design; we’re noting it so the scope of the limits is clear. (And it may not even arise for WebPros Dashboard users if they can’t log into their cPanel account as a normal user.)
 
-**Cascading resource limits** (CPU and Memory per [App Type](#app-types)). Each level defaults to the next one up, so the effective value resolves in this precedence: **App → User → Global → [Adapter](#adapters) default**. A more specific level overrides the broader one and may set any value, higher or lower.
+**Cascading resource limits** (CPU and Memory). Each level defaults to the next one up, so the effective value resolves in this precedence: **App → User → Global → Default**. A more specific level overrides the broader one and may set any value, higher or lower.
 
-1. **[Adapter](#adapters)** default CPU and Memory per [App Type](#app-types)
-1. **Global** default CPU and Memory per [App Type](#app-types) for this server
-1. **User** default CPU and Memory per [App Type](#app-types)
-1. **App** CPU and Memory of a specific _instance_
+**[Adapter](#adapters)** specifiy recommended minimum CPU and Memory for the [App Type](#app-types). if not enough is available for an instance this would do a warning.
+
+1. **Default** default CPU and Memory total per user
+1. **Global** default CPU and Memory per user total for this server
+1. **User** default CPU and Memory for this user total
+1. **App** CPU and Memory of a specific _instance_. This usage, aggreagted, woulc go against total.
+
+App count is irrelevant: e.g. 1 app that hits total then the user gets no more, if they have 50 that are under the totals they can do another as long as it does not push them over their total limits.
 
 **Standalone limits** (set at a single level, no cascade).
 
