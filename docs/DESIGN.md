@@ -79,7 +79,15 @@ The resources are **CPU** and **Memory**. Where a resource has both a hard and a
 * **Lowering a total** below current usage does not stop running apps. The overage is flagged, and new deploys are blocked until usage fits within the total again.
 * Every value must be positive, and a soft limit may not exceed its hard limit.
 
-**App count is irrelevant.** A user whose one app uses their whole total can deploy no more; a user with 50 apps under their totals can deploy another as long as it fits.
+**App count.** App count doesn’t govern resources — the totals above do. It is limited only because each app uses a port from a pool shared by every account on the server, so one account must not be able to exhaust it. Resolves in this precedence: **User → Global → Default**.
+
+1. **Default** — the built-in maximum apps per user, shipped with Web Apps.
+1. **Global** — this server’s maximum apps per user.
+1. **User** — this user’s maximum, set on their WHM account package.
+
+A slot counts as used as soon as a deploy is requested. If the server’s port pool is exhausted, the deploy fails with a clear error even when the user is under their count.
+
+No need for limits per [App Type](#app-types) since type doe snot matter, only resources do.
 
 **[Adapter](#adapters) recommendations.** Each adapter specifies a recommended minimum CPU and Memory for its [App Type](#app-types). If an app’s setting is below that minimum, or the remaining total can’t cover it, the user is warned. The recommendation is advice: it does not block a deploy that otherwise fits.
 
