@@ -65,6 +65,8 @@ User should not be able to change these.
 
 **[Adapter](#adapters)** specifiy recommended minimum CPU and Memory for the [App Type](#app-types). if not enough is available for an instance this would do a warning.
 
+If there is a hard and soft verison of a limit we should support both.
+
 1. **Default** default CPU and Memory total per user
 1. **Global** default CPU and Memory per user total for this server
 1. **User** default CPU and Memory for this user total
