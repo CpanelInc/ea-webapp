@@ -83,6 +83,35 @@ The resources are **CPU** and **Memory**. Where a resource has both a hard and a
 * **Lowering a total** below current usage does not stop running apps. The overage is flagged, and new deploys are blocked until usage fits within the total again.
 * Every value must be positive, and a soft limit may not exceed its hard limit.
 
+#### podman flags
+
+Here's how the four limits in the design map onto podman flags:
+
+| Design limit | Podman flag | What the kernel enforces (cgroup v2) |
+|---|---|---|
+| Hard memory | `--memory` (plus `--memory-swap`) | `memory.max`: a ceiling, and the container is OOM-killed if it goes over |
+| Soft memory | `--memory-reservation` | `memory.low`: a floor that's protected from reclaim when memory is tight |
+| Hard CPU | `--cpus` (shorthand for `--cpu-period` + `--cpu-quota`) | `cpu.max`: a ceiling on CPU time |
+| Soft CPU | `--cpu-shares` | `cpu.weight`: a relative priority when CPU is contested |
+
+`--memory-swap` should be set to the same value as `--memory`. Otherwise podman lets the container use swap on top of its memory cap, up to twice the cap in total. The current branch already does this where swap limiting is supported.
+
+Both hard limits fit the design cleanly. They're absolute amounts, so adding them up against a user's total means exactly what it says. The two soft limits don't fit as neatly:
+
+- **Soft CPU is a ratio, not an amount.** `--cpu-shares` only says how to divide contested CPU among containers that share the same parent. Adding up shares against a "soft CPU total" doesn't correspond to any quantity of CPU. It also only ranks siblings: all of a user's rootless containers sit inside that user's own slice, so shares rank the user's apps against each other, not against other accounts. How much CPU one account gets relative to another is decided by the weights on the user slices, which are equal by default and set by root.
+- **Soft memory has to be set on the parent cgroups too.** A container's `memory.low` protection only takes effect up to the protection set on its parent cgroups. On a stock host the user slice has none, so `--memory-reservation` on a rootless container does little or nothing against memory pressure from other accounts. It only works if root also sets a memory floor (`MemoryLow`) on the account's user slice. That would fit naturally with enforcing the user's soft total at the slice level.
+
+So for the design, soft memory works as written, as long as enforcement includes a root-side floor on the user slice. Soft CPU needs a decision. You could drop it. You could keep it as a per-app priority that isn't counted against a total. Or you could express it in CPU units, convert it to shares internally, and accept that it only ranks a user's own apps against each other.
+
+For ea-podman's rejected list, blocking `--memory` and `--cpus` isn't enough on its own. These flags can get around the caps, or add soft limits the admin didn't set:
+- `--cpu-period` and `--cpu-quota`, which set the same CPU limit that `--cpus` does
+- `--memory-swap`
+- `--memory-reservation`
+- `--cpu-shares` (also written `-c`)
+- `--cgroup-parent` and `--cgroups=disabled`, which move the container out from under the caps entirely
+
+Julian's comments say ea-podman now rejects `--memory` and `--cpus` for web app containers. I didn't see the rest mentioned, so check #30 before it merges.
+
 ### App count
 
 App count doesn’t govern resources — the totals above do. It is limited only because each app uses a port from a pool shared by every account on the server, so one account must not be able to exhaust it. Resolves in this precedence: **User → Global → Default**.
