@@ -83,34 +83,31 @@ The resources are **CPU** and **Memory**. Where a resource has both a hard and a
 * **Lowering a total** below current usage does not stop running apps. The overage is flagged, and new deploys are blocked until usage fits within the total again.
 * Every value must be positive, and a soft limit may not exceed its hard limit.
 
-#### podman flags
+#### Podman flags
 
-Here's how the four limits in the design map onto podman flags:
+| Limit | Podman flag | cgroup v2 | cgroup v1 |
+|---|---|---|---|
+| Hard memory | `--memory` | `memory.max` — ceiling; OOM-kill above it | `memory.limit_in_bytes` — ceiling; OOM-kill above it |
+| Hard memory (swap) | `--memory-swap`, set equal to `--memory` | `memory.swap.max` | `memory.memsw.limit_in_bytes` — needs kernel swap accounting |
+| Soft memory | `--memory-reservation` | `memory.low` — floor protected from reclaim | `memory.soft_limit_in_bytes` — reclaim target under memory pressure |
+| Hard CPU | `--cpus` (shorthand for `--cpu-period` + `--cpu-quota`) | `cpu.max` — ceiling on CPU time | `cpu.cfs_quota_us` / `cpu.cfs_period_us` — ceiling on CPU time |
+| Soft CPU | `--cpu-shares` | `cpu.weight` — relative priority, converted from shares | `cpu.shares` — relative priority, default 1024 |
 
-| Design limit | Podman flag | What the kernel enforces (cgroup v2) |
-|---|---|---|
-| Hard memory | `--memory` (plus `--memory-swap`) | `memory.max`: a ceiling, and the container is OOM-killed if it goes over |
-| Soft memory | `--memory-reservation` | `memory.low`: a floor that's protected from reclaim when memory is tight |
-| Hard CPU | `--cpus` (shorthand for `--cpu-period` + `--cpu-quota`) | `cpu.max`: a ceiling on CPU time |
-| Soft CPU | `--cpu-shares` | `cpu.weight`: a relative priority when CPU is contested |
+**Swap.** `--memory-swap` is set equal to `--memory` so a container cannot use swap beyond its memory cap; otherwise podman allows up to twice the cap in total. On cgroup v1 this requires kernel swap accounting; where it is unavailable, swap cannot be limited.
 
-`--memory-swap` should be set to the same value as `--memory`. Otherwise podman lets the container use swap on top of its memory cap, up to twice the cap in total. The current branch already does this where swap limiting is supported.
+**Hard limits** are absolute amounts, so summing them against a user’s total means exactly what it says, on either cgroup version.
 
-Both hard limits fit the design cleanly. They're absolute amounts, so adding them up against a user's total means exactly what it says. The two soft limits don't fit as neatly:
+**Soft memory** protection is hierarchical on cgroup v2: a container’s `memory.low` is effective only up to the protection set on its parent cgroups. Enforcement therefore sets a root-side floor (`MemoryLow`) on the account’s user slice, matching the user’s soft total. On cgroup v1, the soft limit protects nothing; the kernel only uses it under system-wide memory pressure, reclaiming first from cgroups furthest over their soft limit.
 
-- **Soft CPU is a ratio, not an amount.** `--cpu-shares` only says how to divide contested CPU among containers that share the same parent. Adding up shares against a "soft CPU total" doesn't correspond to any quantity of CPU. It also only ranks siblings: all of a user's rootless containers sit inside that user's own slice, so shares rank the user's apps against each other, not against other accounts. How much CPU one account gets relative to another is decided by the weights on the user slices, which are equal by default and set by root.
-- **Soft memory has to be set on the parent cgroups too.** A container's `memory.low` protection only takes effect up to the protection set on its parent cgroups. On a stock host the user slice has none, so `--memory-reservation` on a rootless container does little or nothing against memory pressure from other accounts. It only works if root also sets a memory floor (`MemoryLow`) on the account's user slice. That would fit naturally with enforcing the user's soft total at the slice level.
+**Soft CPU** is a ratio, not an amount, on either cgroup version. Shares only divide contested CPU among siblings in the same parent cgroup, so a rootless container’s shares rank a user’s apps against each other, not against other accounts. Summing shares against a total does not correspond to a quantity of CPU. _Open question:_ drop soft CPU; keep it as a per-app priority not counted against a total; or express it in CPU units, convert it to shares internally, and accept that it only ranks a user’s own apps.
 
-So for the design, soft memory works as written, as long as enforcement includes a root-side floor on the user slice. Soft CPU needs a decision. You could drop it. You could keep it as a per-app priority that isn't counted against a total. Or you could express it in CPU units, convert it to shares internally, and accept that it only ranks a user's own apps against each other.
+**cgroup v1 hosts.** Rootless podman cannot apply resource limits on cgroup v1; it ignores them with a warning. Web Apps containers are rootless, so on v1 hosts none of these limits are enforced, and the API must not report them as applied. The v1 column applies only to rootful containers. _Open question:_ require cgroup v2 as a minimum; warn in WHM that limits aren’t enforced; or rely on CloudLinux LVE for account-wide limits.
 
-For ea-podman's rejected list, blocking `--memory` and `--cpus` isn't enough on its own. These flags can get around the caps, or add soft limits the admin didn't set:
-- `--cpu-period` and `--cpu-quota`, which set the same CPU limit that `--cpus` does
-- `--memory-swap`
-- `--memory-reservation`
-- `--cpu-shares` (also written `-c`)
-- `--cgroup-parent` and `--cgroups=disabled`, which move the container out from under the caps entirely
+**Account-controlled config.** ea-podman must reject these flags in any config the account controls, because they bypass the caps or set limits the admin didn’t:
 
-Julian's comments say ea-podman now rejects `--memory` and `--cpus` for web app containers. I didn't see the rest mentioned, so check #30 before it merges.
+* `--memory`, `--memory-swap`, `--memory-reservation`
+* `--cpus`, `--cpu-period`, `--cpu-quota`, `--cpu-shares` / `-c`
+* `--cgroup-parent`, `--cgroups=disabled`
 
 ### App count
 
