@@ -66,6 +66,9 @@ Requirements in this section are written in [EARS](https://alistairmavin.com/ear
 * Unwanted behavior: _If \<condition\>, then the system shall …_
 
 Prose that is not a requirement (rationale, background, the podman flag table) is kept as written and does not carry an ID.
+
+The section is organized as: the requirements (below, through [Standalone limits](#standalone-limits)), then [Acceptance criteria](#acceptance-criteria), [Examples](#examples), [Constraints](#constraints) and [Out of scope](#out-of-scope).
+
 * **LIM-1** The system shall not allow a user to change their resource totals, their app count maximum, or anything that sets them.
 * **LIM-2** The system shall let a user choose, within their total, how much each of their apps gets.
 * **LIM-3** The system shall not apply limits per [App Type](#app-types); the system shall base limits only on the resources and ports an app uses.
@@ -193,6 +196,145 @@ Set at a single level, no cascade.
 * **LIM-STD-1** The system shall resolve each standalone limit at a single level, with no cascade.
 * **LIM-STD-2** The API package shall install the `/var/cpanel/feature-flags/NAME` file, and the system shall treat Web Apps as available on a server only when that file is present.
 * **LIM-STD-3** The system shall treat Web Apps as available to a user only when the feature is on for that user, as set by WHM account packages and feature lists.
+
+### Acceptance criteria
+
+Each criterion cites the requirements it verifies. Values match the [Examples](#examples).
+
+1. **Total cascade** (LIM-RES-4, LIM-RES-5)
+   * GIVEN Default memory is 1024 MB, Global is 4096 MB, and the user has no User value
+   * WHEN the user’s effective memory total is resolved
+   * THEN it is 4096 MB.
+   * GIVEN the same, and the user’s package sets 512 MB
+   * WHEN it is resolved
+   * THEN it is 512 MB, lower than both broader levels.
+1. **Deploy fits** (LIM-RES-10, LIM-RES-12)
+   * GIVEN a user with a 2048 MB hard memory total and 1536 MB already allocated
+   * WHEN they deploy an app with 512 MB
+   * THEN the deploy is accepted and 2048 MB is counted as used immediately, before the build finishes.
+1. **Deploy does not fit** (LIM-RES-10, LIM-RES-24)
+   * GIVEN the same user
+   * WHEN they deploy an app with 768 MB
+   * THEN the deploy is refused, nothing is allocated, and the error identifier names the hard memory limit.
+1. **Concurrent deploys** (LIM-RES-12)
+   * GIVEN 512 MB remaining and two simultaneous deploy requests of 512 MB each
+   * WHEN both are processed
+   * THEN exactly one is accepted and the other is refused.
+1. **Release on failure** (LIM-RES-13, LIM-RES-14, LIM-CNT-3, LIM-CNT-4)
+   * GIVEN an accepted deploy that then fails or is cancelled, or a deployed app that is deleted
+   * WHEN that happens
+   * THEN its memory, CPU and app slot are released.
+1. **Change an allocation** (LIM-RES-11)
+   * GIVEN an app with 512 MB and 512 MB remaining in the total
+   * WHEN the user raises it to 1024 MB
+   * THEN the change is accepted, because the app’s own 512 MB counts as available; raising it to 1280 MB is refused.
+1. **Lowered total** (LIM-RES-15, LIM-RES-16, LIM-RES-22, LIM-RES-23)
+   * GIVEN usage of 2048 MB
+   * WHEN the user’s total is lowered to 1024 MB
+   * THEN no running app is stopped, the API reports an overage of 1024 MB, and new deploys are refused until usage is at or under the total.
+1. **Invalid values** (LIM-RES-17, LIM-RES-18)
+   * GIVEN any limit value of 0 or below, or a soft memory limit above its hard limit
+   * WHEN it is submitted
+   * THEN it is rejected.
+1. **Soft CPU** (LIM-RES-19)
+   * GIVEN a request that sets a soft CPU limit
+   * WHEN it is submitted
+   * THEN it is rejected.
+1. **App count** (LIM-CNT-1, LIM-CNT-6, LIM-CNT-7)
+   * GIVEN a user with a maximum of 4 apps and 4 deployed
+   * WHEN they deploy another
+   * THEN it is refused with the app count error.
+   * GIVEN a user under their maximum and an exhausted port pool
+   * WHEN they deploy
+   * THEN it fails with a port pool error.
+1. **Enforced host** (LIM-ENF-1, LIM-ENF-2, LIM-ENF-4, LIM-ENF-9)
+   * GIVEN cgroup v2 with the cpu and memory controllers delegated to the user’s slice
+   * WHEN an app container starts with 512 MB and 0.5 CPU
+   * THEN podman runs with `--memory=512m --memory-swap=512m --cpus=0.5`, and the API reports limits as enforced.
+1. **Unenforced host** (LIM-ENF-6, LIM-ENF-8, LIM-ENF-9)
+   * GIVEN a cgroup v1 host and no administrator acknowledgement
+   * WHEN anyone asks whether Web Apps is available
+   * THEN it is unavailable and the API reports limits as not enforced.
+   * GIVEN the administrator then acknowledges
+   * WHEN availability is asked again
+   * THEN Web Apps is available, totals and counts are still checked, and the API still reports limits as not enforced.
+1. **Account-controlled flags** (LIM-ENF-5)
+   * GIVEN an account-controlled config containing `--memory=8g`
+   * WHEN ea-podman reads it
+   * THEN it is rejected.
+1. **Recommendations** (LIM-REC-2, LIM-REC-3)
+   * GIVEN an adapter recommending 256 MB and an app set to 128 MB that otherwise fits
+   * WHEN it is deployed
+   * THEN the user is warned and the deploy is accepted.
+1. **Upgrade backfill** (LIM-RES-25, LIM-RES-26)
+   * GIVEN an existing app with no allocation, using 512 MB
+   * WHEN Web Apps is upgraded
+   * THEN its Memory is set to 512 MB and its CPU to its adapter’s default, during the upgrade itself.
+
+### Examples
+
+Concrete values for a user whose effective hard totals are **2048 MB memory** and **2.0 CPU** (set on the package), with two apps deployed: app A at 512 MB and 0.5 CPU, app B at 1024 MB and 1.0 CPU. Usage is 1536 MB and 1.5 CPU; remaining is 512 MB and 0.5 CPU. Error identifier spellings below are illustrative; LIM-RES-24 requires that the identifier names the limit, not this exact spelling.
+
+**Happy path: deploy fits** (LIM-RES-10, LIM-RES-12)
+
+```
+input:  deploy { type: "nodejs", memory_mb: 512, cpu: 0.5 }
+output: { status: 1, data: { app: "C", memory_mb: 512, cpu: 0.5 } }
+after:  usage 2048 MB / 2048 MB, 2.0 CPU / 2.0 CPU, overage { memory_mb: 0, cpu: 0 }
+```
+
+**Error case: deploy does not fit** (LIM-RES-10, LIM-RES-24)
+
+```
+input:  deploy { type: "nodejs", memory_mb: 768, cpu: 0.5 }
+output: { status: 0, error: "limit_memory_hard_exceeded",
+          detail: "Requested 768 MB, 512 MB remaining of 2048 MB." }
+after:  unchanged, usage 1536 MB, no allocation reserved
+```
+
+**Happy path: enforced host** (LIM-ENF-4, LIM-ENF-9)
+
+```
+input:  get_available   (cgroup v2, cpu and memory controllers delegated)
+output: { limits_enforced: true,
+          memory_mb: { total: 2048, usage: 1536, overage: 0 },
+          cpu:       { total: 2.0,  usage: 1.5,  overage: 0 } }
+```
+
+**Error case: unenforced host, not acknowledged** (LIM-ENF-8, LIM-ENF-9)
+
+```
+input:  deploy { type: "nodejs", memory_mb: 512, cpu: 0.5 }   (cgroup v1, no acknowledgement)
+output: { status: 0, error: "webapps_unavailable_limits_not_enforced",
+          limits_enforced: false }
+after:  nothing deployed; the WHM warning (LIM-ENF-7) links to the documentation page (LIM-ENF-10)
+```
+
+### Constraints
+
+* Limits are enforced only on cgroup v2 with the cpu and memory controllers delegated to the account’s slice (LIM-ENF-4). Web Apps containers are rootless, and rootless podman ignores limits on cgroup v1.
+* Usage is the sum of configured per-app settings, never measured consumption (LIM-RES-9).
+* Every app has a CPU and Memory setting. There is no fallback for one without (LIM-RES-8).
+* CPU has a hard limit only. Memory has hard and soft. Every limit value is positive and a soft limit never exceeds its hard limit (LIM-RES-17, LIM-RES-18, LIM-RES-19).
+* Users cannot change their totals or app count maximum (LIM-1). Build container caps are fixed (LIM-RES-21).
+* The [API](#api) has no [App Type](#app-types) specific logic, so limits cannot differ by App Type (LIM-3).
+* App count exists only because the port pool is shared by every account on the server (LIM-CNT-7).
+* Errors are machine-readable with stable identifiers (see [Errors](#errors) and LIM-RES-24).
+* The acknowledgement setting lives in `cpanel-plugin-common`, so the Web Apps plugin must require a version that defines it (LIM-ENF-11, LIM-ENF-12).
+* Overage is never stored, only derived (LIM-RES-22).
+* Limits bind only what Web Apps does on a user’s behalf, per the Note at the top of this section.
+
+### Out of scope
+
+* Pids limiting.
+* General account disk space and database limits (owned outside this plugin).
+* WHM controls for setting limits (CPANEL-56151).
+* Soft CPU (LIM-RES-19).
+* Limits on containers a user runs directly from the shell, outside Web Apps (see the Note above).
+* CloudLinux LVE account-wide limits. It is not a Web Apps limit; it is only mentioned in the public documentation page (LIM-ENF-10).
+* Rootful containers.
+* Stopping or throttling running apps when a total is lowered (LIM-RES-15).
+* Limits that vary by [App Type](#app-types) (LIM-3).
 
 ## Domains
 
