@@ -65,8 +65,7 @@ Requirements in this section are written in [EARS](https://alistairmavin.com/ear
 * Optional feature: _Where \<feature is present\>, the system shall …_
 * Unwanted behavior: _If \<condition\>, then the system shall …_
 
-Prose that is not a requirement (rationale, background, the podman flag table) is kept as written and does not carry an ID. Open questions have no requirement until they are decided; they are collected under [Open questions](#open-questions).
-
+Prose that is not a requirement (rationale, background, the podman flag table) is kept as written and does not carry an ID.
 * **LIM-1** The system shall not allow a user to change their resource totals, their app count maximum, or anything that sets them.
 * **LIM-2** The system shall let a user choose, within their total, how much each of their apps gets.
 * **LIM-3** The system shall not apply limits per [App Type](#app-types); the system shall base limits only on the resources and ports an app uses.
@@ -105,6 +104,7 @@ The resources are **CPU** and **Memory**.
 * **LIM-RES-16** While usage exceeds a total, the system shall refuse new deploys.
 * **LIM-RES-17** If a limit value is not positive, then the system shall reject it.
 * **LIM-RES-18** If a soft limit exceeds its hard limit, then the system shall reject it.
+* **LIM-RES-19** The system shall not support a soft CPU limit; CPU has a hard limit only, and Memory has both hard and soft.
 
 #### Podman flags
 
@@ -114,16 +114,22 @@ The resources are **CPU** and **Memory**.
 | Hard memory (swap) | `--memory-swap`, set equal to `--memory` | `memory.swap.max` | `memory.memsw.limit_in_bytes` — needs kernel swap accounting |
 | Soft memory | `--memory-reservation` | `memory.low` — floor protected from reclaim | `memory.soft_limit_in_bytes` — reclaim target under memory pressure |
 | Hard CPU | `--cpus` (shorthand for `--cpu-period` + `--cpu-quota`) | `cpu.max` — ceiling on CPU time | `cpu.cfs_quota_us` / `cpu.cfs_period_us` — ceiling on CPU time |
-| Soft CPU | `--cpu-shares` | `cpu.weight` — relative priority, converted from shares | `cpu.shares` — relative priority, default 1024 |
 
 * **LIM-ENF-1** When the system starts an app container, it shall apply the app’s limits using the podman flags in the table above.
 * **LIM-ENF-2** When the system applies a hard memory limit, it shall set `--memory-swap` equal to `--memory`.
 * **LIM-ENF-3** Where the host uses cgroup v2, the system shall set `MemoryLow` on the account’s user slice, matching the user’s soft memory total.
-* **LIM-ENF-4** While the host uses cgroup v1, the system shall not report limits on a rootless Web Apps container as applied.
+* **LIM-ENF-4** Where the host uses cgroup v2 and the cpu and memory controllers are delegated to the account’s slice, the system shall enforce limits and report them as enforced.
 * **LIM-ENF-5** If a config the account controls contains any of the flags below, then ea-podman shall reject it, because they bypass the caps or set limits the admin didn’t:
   * `--memory`, `--memory-swap`, `--memory-reservation`
   * `--cpus`, `--cpu-period`, `--cpu-quota`, `--cpu-shares` / `-c`
   * `--cgroup-parent`, `--cgroups=disabled`
+* **LIM-ENF-6** If limits cannot be enforced on the host (see LIM-ENF-4), then the system shall still apply all totals, allocation checks, and app count checks, and shall report limits as not enforced.
+* **LIM-ENF-7** If limits cannot be enforced on the host, then the system shall warn the administrator in WHM that limits are not enforced, that a running app can use more than its allocation, and that cgroup v2 with the cpu and memory controllers delegated is required for enforcement.
+* **LIM-ENF-8** While limits cannot be enforced on the host and an administrator has not explicitly acknowledged that, the system shall treat Web Apps as unavailable on the server.
+* **LIM-ENF-9** The [API](#api) shall report, in a machine-readable field, whether limits are enforced, so that [UIs](#ui) and [MCPs](#mcp) can tell their users.
+* **LIM-ENF-10** The warning in LIM-ENF-7 shall link to a public-facing documentation page that describes the limitations of cgroup v1 hosts and the ways to move to cgroup v2, including the CloudLinux LVE alternative for account-wide limits.
+* **LIM-ENF-11** The system shall store the administrator’s acknowledgement in LIM-ENF-8 as a WHM Tweak Setting, in the shared `Plugins` Tweak Settings module (`Whostmgr::TweakSettings::Plugins`, stored in `/var/cpanel/plugins/plugins.config`).
+* **LIM-ENF-12** The Web Apps plugin shall require the `cpanel-plugin-common` package at a version that defines the acknowledgement setting in LIM-ENF-11.
 
 **Swap.** `--memory-swap` is set equal to `--memory` so a container cannot use swap beyond its memory cap; otherwise podman allows up to twice the cap in total. On cgroup v1 this requires kernel swap accounting; where it is unavailable, swap cannot be limited.
 
@@ -131,16 +137,11 @@ The resources are **CPU** and **Memory**.
 
 **Soft memory** protection is hierarchical on cgroup v2: a container’s `memory.low` is effective only up to the protection set on its parent cgroups. Enforcement therefore sets a root-side floor (`MemoryLow`) on the account’s user slice, matching the user’s soft total. On cgroup v1, the soft limit protects nothing; the kernel only uses it under system-wide memory pressure, reclaiming first from cgroups furthest over their soft limit.
 
-**Soft CPU** is a ratio, not an amount, on either cgroup version. Shares only divide contested CPU among siblings in the same parent cgroup, so a rootless container’s shares rank a user’s apps against each other, not against other accounts. Summing shares against a total does not correspond to a quantity of CPU.
+**Soft CPU** is not supported. It is a ratio, not an amount, on either cgroup version (`--cpu-shares`, `cpu.weight` on v2, `cpu.shares` on v1). Shares only divide contested CPU among siblings in the same parent cgroup, so a rootless container’s shares rank a user’s apps against each other, not against other accounts. Summing shares against a total does not correspond to a quantity of CPU. Dropping it keeps CPU to one number per app, and what it would give is weak.
 
-**cgroup v1 hosts.** Rootless podman cannot apply resource limits on cgroup v1; it ignores them with a warning. Web Apps containers are rootless, so on v1 hosts none of these limits are enforced, and the API must not report them as applied. The v1 column applies only to rootful containers.
+**cgroup v1 hosts.** Rootless podman cannot apply resource limits on cgroup v1; it ignores them with a warning. Web Apps containers are rootless, so on v1 hosts none of these limits are enforced, and the API must not report them as applied. The v1 column applies only to rootful containers. Web Apps is still allowed on such hosts, but only after the administrator explicitly acknowledges that limits are not enforced (LIM-ENF-8). The administrator can get enforcement by moving the host to cgroup v2, either by a distro that defaults to it or, on EL8, by a kernel boot parameter and a reboot. Cgroup v2 alone is not enough: the cpu and memory controllers must also be delegated to the account’s slice.
 
-#### Open questions
-
-No requirement is written for these until they are decided.
-
-* **Soft CPU.** Drop soft CPU; keep it as a per-app priority not counted against a total; or express it in CPU units, convert it to shares internally, and accept that it only ranks a user’s own apps.
-* **cgroup v1 hosts.** Require cgroup v2 as a minimum; warn in WHM that limits aren’t enforced; or rely on CloudLinux LVE for account-wide limits.
+**CloudLinux.** On CloudLinux, account-wide limits can come from LVE instead. That is not a Web Apps limit, it does not enforce per-app limits, and it is deliberately left out of the warning in LIM-ENF-7. It should instead be covered in the public-facing documentation page that the warning links to (LIM-ENF-10).
 
 ### App count
 
