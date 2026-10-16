@@ -79,6 +79,8 @@ The section is organized as: the requirements (below, through [Standalone limits
 
 The resources are **CPU** and **Memory**.
 
+Memory amounts are in MiB (1,048,576 bytes), the unit podman’s `m` suffix and the plugin’s `memory_mb` values use.
+
 * **LIM-RES-1** The system shall support limits on two resources: CPU and Memory.
 * **LIM-RES-2** Where a resource has both a hard and a soft limit, the system shall support both and track each on its own.
 * **LIM-RES-3** The system shall count hard allocations against the hard total and soft allocations against the soft total.
@@ -101,6 +103,7 @@ The resources are **CPU** and **Memory**.
 * **LIM-RES-10** When a deploy is requested, if the app’s setting does not fit within the remaining total (total minus usage), then the system shall refuse the deploy.
 * **LIM-RES-11** When a change to an app’s setting is requested, if the new value does not fit within the remaining total, counting that app’s current allocation as available, then the system shall refuse the change.
 * **LIM-RES-12** When a deploy is requested, the system shall count the app’s allocation toward usage immediately, so that queued or concurrent deploys cannot together exceed the total.
+* **LIM-RES-34** The system shall check and reserve a user’s allocation (LIM-RES-10, LIM-RES-12) and app slot (LIM-CNT-2) as one critical section under that user’s registry lock, held from the check until the reservation is saved.
 * **LIM-RES-13** When an app is deleted, the system shall release its allocation.
 * **LIM-RES-14** When a deploy fails or is cancelled, the system shall release the allocation reserved for it when it was requested.
 * **LIM-RES-15** When a total is lowered below current usage, the system shall not stop running apps, and shall flag the overage (see LIM-RES-22 and LIM-RES-23).
@@ -109,10 +112,14 @@ The resources are **CPU** and **Memory**.
 * **LIM-RES-18** If an app’s soft memory limit exceeds its hard memory limit, or a user’s soft memory total exceeds their hard memory total, then the system shall reject it.
 * **LIM-RES-19** The system shall not support a soft CPU limit; CPU has a hard limit only, and Memory has both hard and soft.
 
+**Lock hold time.** The registry lock is per user, so it only makes one user’s own requests wait for each other. Today `stage()` holds it across a git clone or archive extraction bounded at 300 seconds, so a second request from the same user can wait that long. This is accepted. The new checks are cheap reads of the registry, and LIM-RES-34 must not add network or build work inside the lock.
+
 **Build containers.** An app is built in a separate, temporary container that needs far more than the app does while running.
 
 * **LIM-RES-20** The system shall not count the resources of a build container toward a user’s usage.
 * **LIM-RES-21** The system shall limit each build container to a fixed cap that the user cannot change.
+* **LIM-RES-32** The system shall run at most one build container per user at a time, so that the memory a user’s builds can use is bounded by one build cap, not by the number of apps.
+* **LIM-RES-33** If a user requests a deploy while one of their build containers is running, then the system shall refuse the deploy, before reserving any allocation or app slot, and return the error category `build_in_progress`.
 
 **Overage.** An overage is usage above a total, for example after the total is lowered (LIM-RES-15).
 
@@ -124,11 +131,11 @@ The resources are **CPU** and **Memory**.
 
 * **LIM-RES-25** When Web Apps is upgraded to a version with per-app allocations, the system shall once, during the upgrade and not on first read, set the Memory of each existing app instance to the amount it has at that time.
 * **LIM-RES-26** When the upgrade in LIM-RES-25 runs, the system shall set the CPU of each existing app instance to the default for its [Adapter](#adapters), because CPU has not been limited until then and a limit must be positive (LIM-RES-17).
-* **LIM-RES-27** The built-in Default totals shall be 2048 MB of hard memory and 4.0 CPU, enough for the default maximum of 4 apps at 512 MB and 1.0 CPU each. An adapter that sets no default CPU of its own shall default to 1.0 CPU.
-* **LIM-RES-28** If the upgrade in LIM-RES-25 leaves a user in overage, for example a package that allows 10 apps against the 2048 MB Default, then the system shall leave their apps running and refuse new deploys under LIM-RES-16 until their usage is within the total; this is intended, not a defect.
+* **LIM-RES-27** The built-in Default totals shall be 2048 MiB of hard memory and 4.0 CPU, enough for the default maximum of 4 apps at 512 MiB and 1.0 CPU each. An adapter that sets no default CPU of its own shall default to 1.0 CPU.
+* **LIM-RES-28** If the upgrade in LIM-RES-25 leaves a user in overage, for example a package that allows 10 apps against the 2048 MiB Default, then the system shall leave their apps running and refuse new deploys under LIM-RES-16 until their usage is within the total; this is intended, not a defect.
 * **LIM-RES-29** When the upgrade in LIM-RES-25 finishes, the system shall log how many users it left in overage.
 
-**Error identifiers.** A failed call carries one `error_category` value. Every refusal for a limit uses the category `limit_exceeded`, and a second metadata field, `error_limit`, names the limit. Two other failures are their own categories.
+**Error identifiers.** A failed call carries one `error_category` value. Every refusal for a limit uses the category `limit_exceeded`, and a second metadata field, `error_limit`, names the limit. Three other failures are their own categories.
 
 | `error_category` | `error_limit` | Returned when |
 |---|---|---|
@@ -137,7 +144,8 @@ The resources are **CPU** and **Memory**.
 | `limit_exceeded` | `cpu_hard` | a deploy or change does not fit the CPU total |
 | `limit_exceeded` | `app_count` | the user is not under their maximum app count |
 | `port_pool_exhausted` | none | the server’s port pool is exhausted |
-| `webapps_unavailable_limits_not_enforced` | none | limits cannot be enforced and the administrator has not acknowledged |
+| `build_in_progress` | none | the user already has a build container running |
+| `webapps_unavailable_limits_not_enforced` | none | limits cannot be enforced for either resource and the administrator has not acknowledged |
 
 * **LIM-RES-30** The [API](#api) shall use the `error_category` and `error_limit` values in the table above, and shall not rename them once released.
 * **LIM-RES-31** The system shall keep returning `limit_exceeded` as the `error_category` for an app count refusal, as it does today, so clients that match on it keep working, and shall add `error_limit` without changing that category.
@@ -151,35 +159,35 @@ The resources are **CPU** and **Memory**.
 | Soft memory | `--memory-reservation` | `memory.low` — floor protected from reclaim | `memory.soft_limit_in_bytes` — reclaim target under memory pressure |
 | Hard CPU | `--cpus` (shorthand for `--cpu-period` + `--cpu-quota`) | `cpu.max` — ceiling on CPU time | `cpu.cfs_quota_us` / `cpu.cfs_period_us` — ceiling on CPU time |
 
-* **LIM-ENF-1** When the system starts an app container and limits can be enforced (LIM-ENF-4), it shall apply the app’s limits using the podman flags in the table above.
-* **LIM-ENF-2** When the system applies a hard memory limit, it shall set `--memory-swap` equal to `--memory`.
-* **LIM-ENF-3** Where limits can be enforced (LIM-ENF-4), the system shall set `MemoryLow` on the account’s user slice, matching the user’s soft memory total.
-* **LIM-ENF-4** Where the host uses cgroup v2 and the cpu and memory controllers are delegated to the account’s slice, the system shall enforce limits and report them as enforced.
-* **LIM-ENF-4a** If limits cannot be enforced, then the system shall not pass the limit flags in LIM-ENF-1 or set `MemoryLow`, because podman ignores them with a warning on every start.
-* **LIM-ENF-5** If a config the account controls contains any of the flags below, then ea-podman shall reject it, because they bypass the caps or set limits the admin didn’t:
+* **LIM-ENF-1** When the system starts an app container, it shall apply the app’s limits for each resource whose limits can be enforced (LIM-ENF-4), using the podman flags in the table above.
+* **LIM-ENF-2** When the system applies a hard memory limit, it shall set `--memory-swap` equal to `--memory` where swap can be limited, meaning the user’s service manager has a `memory.swap.max` file. Where swap cannot be limited, the system shall pass `--memory` alone and note that swap is not capped, because podman refuses to start a container that is given `--memory-swap` without swap accounting.
+* **LIM-ENF-3** Where soft memory limits can be enforced (LIM-ENF-4), the system shall set `MemoryLow` on the account’s user slice, matching the user’s soft memory total.
+* **LIM-ENF-4** Where the host uses cgroup v2, the system shall treat a resource’s limits as enforceable when the controller for it is delegated to the user’s service manager (`user@<uid>.service`): the memory controller for Memory limits, the cpu controller for CPU limits. Soft memory limits are enforceable only when, in addition, the cgroup2 mount has `memory_recursiveprot`, because that is what lets the floor set on the user slice (LIM-ENF-3) reach containers below the intermediate cgroups. The system shall enforce limits that are enforceable and report each of hard memory, soft memory and CPU as enforced or not.
+* **LIM-ENF-4a** If a limit cannot be enforced, then the system shall not pass its flags, because podman ignores them with a warning on every start: `--memory` and `--memory-swap` for hard memory, `--memory-reservation` and `MemoryLow` for soft memory, and `--cpus` for CPU.
+* **LIM-ENF-5** If a config the account controls contains any of the flags below, then ea-podman shall reject it (this is ea-podman’s work, tracked in CPANEL-57893, not the Web Apps plugin’s), because they bypass the caps or set limits the admin didn’t:
   * `--memory`, `--memory-swap`, `--memory-reservation`
   * `--cpus`, `--cpu-period`, `--cpu-quota`, `--cpu-shares` / `-c`
   * `--cgroup-parent`, `--cgroups=disabled`
-* **LIM-ENF-6** If limits cannot be enforced on the host (see LIM-ENF-4), then the system shall still apply all totals, allocation checks, and app count checks, and shall report limits as not enforced.
-* **LIM-ENF-7** If limits cannot be enforced on the host, then the system shall warn the administrator in WHM that limits are not enforced, that a running app can use more than its allocation, and that cgroup v2 with the cpu and memory controllers delegated is required for enforcement.
-* **LIM-ENF-8** While limits cannot be enforced on the host and an administrator has not explicitly acknowledged that, the system shall treat Web Apps as unavailable on the server.
-* **LIM-ENF-9** The [API](#api) shall report, in a machine-readable field, whether limits are enforced, so that [UIs](#ui) and [MCPs](#mcp) can tell their users.
+* **LIM-ENF-6** If a resource’s limits cannot be enforced on the host (see LIM-ENF-4), then the system shall still apply all totals, allocation checks, and app count checks, and shall report that resource as not enforced.
+* **LIM-ENF-7** If a limit cannot be enforced on the host, then the system shall warn the administrator in WHM, naming that limit (hard memory, soft memory or CPU), that it is not enforced, that a running app can use more than its allocation, and what is required for enforcement: cgroup v2 with the controller for it delegated, and for soft memory also `memory_recursiveprot`.
+* **LIM-ENF-8** While neither Memory limits nor CPU limits can be enforced on the host and an administrator has not explicitly acknowledged that, the system shall treat Web Apps as unavailable on the server. While at least one of them can be enforced, the system shall treat Web Apps as available and shall still warn under LIM-ENF-7.
+* **LIM-ENF-9** The [API](#api) shall report, for each of hard memory, soft memory and CPU, in a machine-readable field, whether that limit is enforced, so that [UIs](#ui) and [MCPs](#mcp) can tell their users.
 * **LIM-ENF-10** The warning in LIM-ENF-7 shall link to a public-facing documentation page that describes the limitations of cgroup v1 hosts and the ways to move to cgroup v2, including the CloudLinux LVE alternative for account-wide limits.
 * **LIM-ENF-11** The system shall store the administrator’s acknowledgement in LIM-ENF-8 as a WHM Tweak Setting, in the shared `Plugins` Tweak Settings module (`Whostmgr::TweakSettings::Plugins`, stored in `/var/cpanel/plugins/plugins.config`).
 * **LIM-ENF-12** The Web Apps plugin shall require the `cpanel-plugin-common` package at a version that defines the acknowledgement setting in LIM-ENF-11.
 * **LIM-ENF-13** The acknowledgement in LIM-ENF-8 shall apply to the whole server, and the system shall read it each time it checks whether Web Apps is available, not cache it from install time.
-* **LIM-ENF-14** While limits can be enforced (LIM-ENF-4), the system shall ignore the acknowledgement; if enforcement is later lost, the stored acknowledgement shall apply again without a new prompt.
+* **LIM-ENF-14** While limits can be enforced for at least one resource (LIM-ENF-4), the system shall ignore the acknowledgement; if enforcement is later lost for both, the stored acknowledgement shall apply again without a new prompt.
 * **LIM-ENF-15** While Web Apps is unavailable under LIM-ENF-8, the system shall refuse Web Apps API calls and [UIs](#ui) and [MCPs](#mcp) shall hide the feature, and the system shall not stop apps that are already running.
 
-**Swap.** `--memory-swap` is set equal to `--memory` so a container cannot use swap beyond its memory cap; otherwise podman allows up to twice the cap in total. On cgroup v1 this requires kernel swap accounting; where it is unavailable, swap cannot be limited.
+**Swap.** `--memory-swap` is set equal to `--memory` so a container cannot use swap beyond its memory cap; otherwise podman allows up to twice the cap in total. It requires kernel swap accounting, on cgroup v1 and on v2; where it is unavailable, swap cannot be limited, and Memory limits are still enforced for memory itself.
 
 **Hard limits** are absolute amounts, so summing them against a user’s total means exactly what it says, on either cgroup version.
 
-**Soft memory** protection is hierarchical on cgroup v2: a container’s `memory.low` is effective only up to the protection set on its parent cgroups. Enforcement therefore sets a root-side floor (`MemoryLow`) on the account’s user slice, matching the user’s soft total. On cgroup v1, the soft limit protects nothing; the kernel only uses it under system-wide memory pressure, reclaiming first from cgroups furthest over their soft limit.
+**Soft memory** protection is hierarchical on cgroup v2: a container’s `memory.low` is effective only up to the protection set on its parent cgroups. Enforcement therefore sets a root-side floor (`MemoryLow`) on the account’s user slice, matching the user’s soft total. That floor reaches the containers below the intermediate cgroups only where the cgroup2 mount has `memory_recursiveprot`, which can be read from `/proc/self/mountinfo`. On cgroup v1, the soft limit protects nothing; the kernel only uses it under system-wide memory pressure, reclaiming first from cgroups furthest over their soft limit.
 
 **Soft CPU** is not supported. It is a ratio, not an amount, on either cgroup version (`--cpu-shares`, `cpu.weight` on v2, `cpu.shares` on v1). Shares only divide contested CPU among siblings in the same parent cgroup, so a rootless container’s shares rank a user’s apps against each other, not against other accounts. Summing shares against a total does not correspond to a quantity of CPU. Dropping it keeps CPU to one number per app, and what it would give is weak.
 
-**cgroup v1 hosts.** Rootless podman cannot apply resource limits on cgroup v1; it ignores them with a warning. Web Apps containers are rootless, so on v1 hosts none of these limits are enforced, and the API must not report them as applied. The v1 column applies only to rootful containers. Web Apps is still allowed on such hosts, but only after the administrator explicitly acknowledges that limits are not enforced (LIM-ENF-8). The administrator can get enforcement by moving the host to cgroup v2, either by a distro that defaults to it or, on EL8, by a kernel boot parameter and a reboot. Cgroup v2 alone is not enough: the cpu and memory controllers must also be delegated to the account’s slice.
+**cgroup v1 hosts.** Rootless podman cannot apply resource limits on cgroup v1; it ignores them with a warning. Web Apps containers are rootless, so on v1 hosts none of these limits are enforced, and the API must not report them as applied. The v1 column applies only to rootful containers. Web Apps is still allowed on such hosts, but only after the administrator explicitly acknowledges that limits are not enforced (LIM-ENF-8). The administrator can get enforcement by moving the host to cgroup v2, either by a distro that defaults to it or, on EL8, by a kernel boot parameter and a reboot. Cgroup v2 alone is not enough: the controller for each resource (memory for Memory, cpu for CPU) must also be delegated to the user’s service manager (`user@<uid>.service`). The cpu controller in particular is often not delegated, so a v2 host can enforce Memory limits and not CPU limits.
 
 **CloudLinux.** On CloudLinux, account-wide limits can come from LVE instead. That is not a Web Apps limit, it does not enforce per-app limits, and it is deliberately left out of the warning in LIM-ENF-7. It should instead be covered in the public-facing documentation page that the warning links to (LIM-ENF-10).
 
@@ -223,51 +231,61 @@ Set at a single level, no cascade.
 Each criterion cites the requirements it verifies. Values match the [Examples](#examples).
 
 1. **Total cascade** (LIM-RES-4, LIM-RES-5)
-   * GIVEN Default memory is 2048 MB, Global is 4096 MB, and the user has no User value
+   * GIVEN Default memory is 2048 MiB, Global is 4096 MiB, and the user has no User value
    * WHEN the user’s effective memory total is resolved
-   * THEN it is 4096 MB.
-   * GIVEN the same, and the user’s package sets 512 MB
+   * THEN it is 4096 MiB.
+   * GIVEN the same, and the user’s package sets 512 MiB
    * WHEN it is resolved
-   * THEN it is 512 MB, lower than both broader levels.
+   * THEN it is 512 MiB, lower than both broader levels.
 1. **Deploy fits** (LIM-RES-10, LIM-RES-12)
-   * GIVEN a user with a 2048 MB hard memory total and 1536 MB already allocated
-   * WHEN they deploy an app with 512 MB
-   * THEN the deploy is accepted and 2048 MB is counted as used immediately, before the build finishes.
+   * GIVEN a user with a 2048 MiB hard memory total and 1536 MiB already allocated
+   * WHEN they deploy an app with 512 MiB
+   * THEN the deploy is accepted and 2048 MiB is counted as used immediately, before the build finishes.
 1. **Deploy does not fit** (LIM-RES-10, LIM-RES-24)
    * GIVEN the same user
-   * WHEN they deploy an app with 768 MB
+   * WHEN they deploy an app with 768 MiB
    * THEN the deploy is refused, nothing is allocated, and the error identifier names the hard memory limit.
-1. **Concurrent deploys** (LIM-RES-12)
-   * GIVEN 512 MB remaining and two simultaneous deploy requests of 512 MB each
+1. **Concurrent deploys** (LIM-RES-12, LIM-RES-34, LIM-CNT-2)
+   * GIVEN 512 MiB remaining and two simultaneous deploy requests of 512 MiB each
    * WHEN both are processed
    * THEN exactly one is accepted and the other is refused.
+   * GIVEN one app slot remaining and two simultaneous requests from the same user
+   * WHEN both are processed
+   * THEN exactly one is accepted and the other is refused with `limit_exceeded` and `error_limit` of `app_count`, and the second request may wait for the first to finish.
 1. **Release on failure** (LIM-RES-13, LIM-RES-14, LIM-CNT-3, LIM-CNT-4)
    * GIVEN an accepted deploy that then fails or is cancelled, or a deployed app that is deleted
    * WHEN that happens
    * THEN its memory, CPU and app slot are released.
 1. **Change an allocation** (LIM-RES-11)
-   * GIVEN an app with 512 MB and 512 MB remaining in the total
-   * WHEN the user raises it to 1024 MB
-   * THEN the change is accepted, because the app’s own 512 MB counts as available; raising it to 1280 MB is refused.
+   * GIVEN an app with 512 MiB and 512 MiB remaining in the total
+   * WHEN the user raises it to 1024 MiB
+   * THEN the change is accepted, because the app’s own 512 MiB counts as available; raising it to 1280 MiB is refused.
 1. **Lowered total** (LIM-RES-15, LIM-RES-16, LIM-RES-22, LIM-RES-23)
-   * GIVEN usage of 2048 MB
-   * WHEN the user’s total is lowered to 1024 MB
-   * THEN no running app is stopped, the API reports an overage of 1024 MB, and new deploys are refused until usage is at or under the total.
+   * GIVEN usage of 2048 MiB
+   * WHEN the user’s total is lowered to 1024 MiB
+   * THEN no running app is stopped, the API reports an overage of 1024 MiB, and new deploys are refused until usage is at or under the total.
 1. **Invalid values** (LIM-RES-17, LIM-RES-18)
-   * GIVEN any limit value of 0 or below, an app with a soft memory limit of 768 MB and a hard limit of 512 MB, or a user with a soft memory total of 3072 MB and a hard total of 2048 MB
+   * GIVEN any limit value of 0 or below, an app with a soft memory limit of 768 MiB and a hard limit of 512 MiB, or a user with a soft memory total of 3072 MiB and a hard total of 2048 MiB
    * WHEN it is submitted
    * THEN it is rejected.
+1. **One build at a time** (LIM-RES-32, LIM-RES-33)
+   * GIVEN a user whose app A is building and who has room in their totals
+   * WHEN they deploy app B
+   * THEN the deploy is refused with the error category `build_in_progress`, no allocation or slot is reserved, and A’s build continues.
+   * GIVEN A’s build then finishes
+   * WHEN they deploy app B again
+   * THEN it is accepted.
 1. **Soft memory fits** (LIM-RES-3, LIM-RES-10, LIM-RES-24)
-   * GIVEN a user with a 1024 MB soft memory total and 768 MB of soft memory allocated
-   * WHEN they deploy an app with a 256 MB soft limit that fits their hard total
+   * GIVEN a user with a 1024 MiB soft memory total and 768 MiB of soft memory allocated
+   * WHEN they deploy an app with a 256 MiB soft limit that fits their hard total
    * THEN the deploy is accepted.
    * GIVEN the same user
-   * WHEN they deploy an app with a 384 MB soft limit
+   * WHEN they deploy an app with a 384 MiB soft limit
    * THEN the deploy is refused, and the error identifier names the soft memory limit.
 1. **Soft memory enforcement** (LIM-ENF-1, LIM-ENF-3)
-   * GIVEN an enforced host and a user with a 1024 MB soft memory total
-   * WHEN an app starts with a 512 MB hard and 256 MB soft memory limit
-   * THEN podman runs with `--memory=512m --memory-swap=512m --memory-reservation=256m`, and `MemoryLow` on the user’s slice is 1024 MB.
+   * GIVEN an enforced host and a user with a 1024 MiB soft memory total
+   * WHEN an app starts with a 512 MiB hard and 256 MiB soft memory limit
+   * THEN podman runs with `--memory=512m --memory-swap=512m --memory-reservation=256m`, and `MemoryLow` on the user’s slice is 1024 MiB.
 1. **Soft CPU** (LIM-RES-19)
    * GIVEN a request that sets a soft CPU limit
    * WHEN it is submitted
@@ -280,23 +298,35 @@ Each criterion cites the requirements it verifies. Values match the [Examples](#
    * WHEN they deploy
    * THEN it fails with a port pool error.
 1. **Enforced host** (LIM-ENF-1, LIM-ENF-2, LIM-ENF-4, LIM-ENF-9)
-   * GIVEN cgroup v2 with the cpu and memory controllers delegated to the user’s slice
-   * WHEN an app container starts with 512 MB and 0.5 CPU
-   * THEN podman runs with `--memory=512m --memory-swap=512m --cpus=0.5`, and the API reports limits as enforced.
+   * GIVEN cgroup v2 with the cpu and memory controllers delegated to the user’s service manager
+   * WHEN an app container starts with 512 MiB and 0.5 CPU
+   * THEN podman runs with `--memory=512m --memory-swap=512m --cpus=0.5`, and the API reports hard memory, soft memory and CPU as enforced.
+1. **No swap accounting** (LIM-ENF-2)
+   * GIVEN cgroup v2 with the memory controller delegated and no `memory.swap.max` for the user
+   * WHEN an app container starts with 512 MiB
+   * THEN podman runs with `--memory=512m` and no `--memory-swap`, the container starts, a note records that swap is not capped, and the API reports hard memory as enforced.
+1. **No recursive protection** (LIM-ENF-3, LIM-ENF-4, LIM-ENF-4a, LIM-ENF-7)
+   * GIVEN cgroup v2 with the memory controller delegated and a cgroup2 mount without `memory_recursiveprot`
+   * WHEN an app container starts with a 512 MiB hard and 256 MiB soft memory limit
+   * THEN podman runs with `--memory=512m --memory-swap=512m` and no `--memory-reservation`, `MemoryLow` is not set, the API reports hard memory as enforced and soft memory as not enforced, and the administrator is warned about soft memory.
+1. **Partly enforced host** (LIM-ENF-4, LIM-ENF-4a, LIM-ENF-7, LIM-ENF-8, LIM-ENF-9)
+   * GIVEN cgroup v2 with the memory controller delegated and the cpu controller not
+   * WHEN an app container starts with 512 MiB and 0.5 CPU
+   * THEN podman runs with `--memory=512m --memory-swap=512m` and no `--cpus`, Web Apps is available without acknowledgement, the API reports hard and soft memory as enforced and CPU as not enforced, and the administrator is warned about CPU.
 1. **Unenforced host** (LIM-ENF-6, LIM-ENF-8, LIM-ENF-9)
    * GIVEN a cgroup v1 host and no administrator acknowledgement
    * WHEN anyone asks whether Web Apps is available
-   * THEN it is unavailable and the API reports limits as not enforced.
+   * THEN it is unavailable and the API reports hard memory, soft memory and CPU as not enforced.
    * GIVEN the administrator then acknowledges
    * WHEN availability is asked again
-   * THEN Web Apps is available, totals and counts are still checked, and the API still reports limits as not enforced.
+   * THEN Web Apps is available, totals and counts are still checked, and the API still reports hard memory, soft memory and CPU as not enforced.
 1. **Acknowledgement over time** (LIM-ENF-13, LIM-ENF-14, LIM-ENF-15)
    * GIVEN a cgroup v1 host where the administrator has acknowledged, and two apps running
    * WHEN the host moves to cgroup v2 with the cpu and memory controllers delegated
-   * THEN the API reports limits as enforced and the acknowledgement is ignored.
-   * GIVEN the host later loses the controller delegation
+   * THEN the API reports hard memory, soft memory and CPU as enforced and the acknowledgement is ignored.
+   * GIVEN the host later loses the memory and cpu delegation
    * WHEN availability is checked
-   * THEN Web Apps is available without a new prompt and the API reports limits as not enforced.
+   * THEN Web Apps is available without a new prompt and the API reports hard memory, soft memory and CPU as not enforced.
    * GIVEN the administrator clears the acknowledgement on an unenforced host
    * WHEN availability is checked
    * THEN API calls are refused, and the two running apps keep running.
@@ -305,28 +335,28 @@ Each criterion cites the requirements it verifies. Values match the [Examples](#
    * WHEN ea-podman reads it
    * THEN it is rejected.
 1. **Recommendations** (LIM-REC-2, LIM-REC-3)
-   * GIVEN an adapter recommending 256 MB and an app set to 128 MB that otherwise fits
+   * GIVEN an adapter recommending 256 MiB and an app set to 128 MiB that otherwise fits
    * WHEN it is deployed
    * THEN the user is warned and the deploy is accepted.
 1. **Upgrade backfill** (LIM-RES-25, LIM-RES-26, LIM-RES-27)
-   * GIVEN an existing app with no allocation, using 512 MB
+   * GIVEN an existing app with no allocation, using 512 MiB
    * WHEN Web Apps is upgraded
-   * THEN its Memory is set to 512 MB and its CPU to its adapter’s default, during the upgrade itself.
+   * THEN its Memory is set to 512 MiB and its CPU to its adapter’s default, during the upgrade itself.
 1. **Upgrade into overage** (LIM-RES-16, LIM-RES-28, LIM-RES-29)
-   * GIVEN a user whose package allows 10 apps, all deployed at 512 MB, and the Default memory total of 2048 MB
+   * GIVEN a user whose package allows 10 apps, all deployed at 512 MiB, and the Default memory total of 2048 MiB
    * WHEN Web Apps is upgraded
-   * THEN all 10 apps keep running, the API reports a memory overage of 3072 MB, a new deploy is refused, and the upgrade log counts this user.
+   * THEN all 10 apps keep running, the API reports a memory overage of 3072 MiB, a new deploy is refused, and the upgrade log counts this user.
 
 ### Examples
 
-Concrete values for a user whose effective totals are **2048 MB hard memory**, **1024 MB soft memory** and **2.0 CPU** (set on the package), with two apps deployed: app A at 512 MB hard, 256 MB soft and 0.5 CPU, app B at 1024 MB hard, 512 MB soft and 1.0 CPU. Usage is 1536 MB hard, 768 MB soft and 1.5 CPU; remaining is 512 MB hard, 256 MB soft and 0.5 CPU. Error identifiers are those in LIM-RES-30.
+Concrete values for a user whose effective totals are **2048 MiB hard memory**, **1024 MiB soft memory** and **2.0 CPU** (set on the package), with two apps deployed: app A at 512 MiB hard, 256 MiB soft and 0.5 CPU, app B at 1024 MiB hard, 512 MiB soft and 1.0 CPU. Usage is 1536 MiB hard, 768 MiB soft and 1.5 CPU; remaining is 512 MiB hard, 256 MiB soft and 0.5 CPU. Error identifiers are those in LIM-RES-30.
 
 **Happy path: deploy fits** (LIM-RES-10, LIM-RES-12)
 
 ```
 input:  deploy { type: "nodejs", memory_mb: 512, soft_memory_mb: 256, cpu: 0.5 }
 output: { status: 1, data: { app: "C", memory_mb: 512, soft_memory_mb: 256, cpu: 0.5 } }
-after:  usage 2048 / 2048 MB hard, 1024 / 1024 MB soft, 2.0 / 2.0 CPU, overage { memory_mb: 0, cpu: 0 }
+after:  usage 2048 / 2048 MiB hard, 1024 / 1024 MiB soft, 2.0 / 2.0 CPU, overage { memory_mb: 0, cpu: 0 }
 ```
 
 **Error case: deploy does not fit** (LIM-RES-10, LIM-RES-24)
@@ -334,8 +364,8 @@ after:  usage 2048 / 2048 MB hard, 1024 / 1024 MB soft, 2.0 / 2.0 CPU, overage {
 ```
 input:  deploy { type: "nodejs", memory_mb: 768, soft_memory_mb: 256, cpu: 0.5 }
 output: { status: 0, error_category: "limit_exceeded", error_limit: "memory_hard",
-          detail: "Requested 768 MB, 512 MB remaining of 2048 MB." }
-after:  unchanged, usage 1536 MB, no allocation reserved
+          detail: "Requested 768 MiB, 512 MiB remaining of 2048 MiB." }
+after:  unchanged, usage 1536 MiB, no allocation reserved
 ```
 
 **Error case: soft memory does not fit** (LIM-RES-3, LIM-RES-24)
@@ -343,15 +373,15 @@ after:  unchanged, usage 1536 MB, no allocation reserved
 ```
 input:  deploy { type: "nodejs", memory_mb: 512, soft_memory_mb: 384, cpu: 0.5 }
 output: { status: 0, error_category: "limit_exceeded", error_limit: "memory_soft",
-          detail: "Requested 384 MB soft, 256 MB remaining of 1024 MB." }
-after:  unchanged, usage 768 MB soft, no allocation reserved
+          detail: "Requested 384 MiB soft, 256 MiB remaining of 1024 MiB." }
+after:  unchanged, usage 768 MiB soft, no allocation reserved
 ```
 
 **Happy path: enforced host** (LIM-ENF-4, LIM-ENF-9)
 
 ```
 input:  get_available   (cgroup v2, cpu and memory controllers delegated)
-output: { limits_enforced: true,
+output: { limits_enforced: { memory_hard: true, memory_soft: true, cpu: true },
           memory_mb: { total: 2048, usage: 1536, overage: 0 },
           cpu:       { total: 2.0,  usage: 1.5,  overage: 0 } }
 ```
@@ -361,22 +391,23 @@ output: { limits_enforced: true,
 ```
 input:  deploy { type: "nodejs", memory_mb: 512, cpu: 0.5 }   (cgroup v1, no acknowledgement)
 output: { status: 0, error_category: "webapps_unavailable_limits_not_enforced",
-          limits_enforced: false }
+          limits_enforced: { memory_hard: false, memory_soft: false, cpu: false } }
 after:  nothing deployed; the WHM warning (LIM-ENF-7) links to the documentation page (LIM-ENF-10)
 ```
 
 ### Constraints
 
-* Limits are enforced only on cgroup v2 with the cpu and memory controllers delegated to the account’s slice (LIM-ENF-4). Web Apps containers are rootless, and rootless podman ignores limits on cgroup v1.
+* A resource’s limits are enforced only on cgroup v2 with its controller (memory or cpu) delegated to the user’s service manager, and soft memory also needs `memory_recursiveprot` on the cgroup2 mount (LIM-ENF-4). Web Apps containers are rootless, and rootless podman ignores limits on cgroup v1.
 * Usage is the sum of configured per-app settings, never measured consumption (LIM-RES-9).
 * Every app has a CPU and Memory setting. There is no fallback for one without (LIM-RES-8).
 * CPU has a hard limit only. Memory has hard and soft. Every limit value is positive and a soft limit never exceeds its hard limit (LIM-RES-17, LIM-RES-18, LIM-RES-19).
-* Users cannot change their totals or app count maximum (LIM-1). Build container caps are fixed (LIM-RES-21).
+* Users cannot change their totals or app count maximum (LIM-1). Build container caps are fixed (LIM-RES-21), and a user runs at most one build at a time (LIM-RES-32).
 * The [API](#api) has no [App Type](#app-types) specific logic, so limits cannot differ by App Type (LIM-3).
 * App count exists only because the port pool is shared by every account on the server (LIM-CNT-7).
 * Errors are machine-readable with stable identifiers (see [Errors](#errors) and LIM-RES-24).
 * The acknowledgement setting lives in `cpanel-plugin-common`, so the Web Apps plugin must require a version that defines it (LIM-ENF-11, LIM-ENF-12).
 * Overage is never stored, only derived (LIM-RES-22).
+* Limit checks and reservations run under the user’s registry lock (LIM-RES-34), which stage holds for up to 300 seconds, so a user’s own concurrent requests can wait that long.
 * Limits bind only what Web Apps does on a user’s behalf, per the Note at the top of this section.
 
 ### Out of scope
