@@ -100,11 +100,27 @@ The resources are **CPU** and **Memory**.
 * **LIM-RES-12** When a deploy is requested, the system shall count the app’s allocation toward usage immediately, so that queued or concurrent deploys cannot together exceed the total.
 * **LIM-RES-13** When an app is deleted, the system shall release its allocation.
 * **LIM-RES-14** When a deploy fails or is cancelled, the system shall release the allocation reserved for it when it was requested.
-* **LIM-RES-15** When a total is lowered below current usage, the system shall not stop running apps, and shall flag the overage.
+* **LIM-RES-15** When a total is lowered below current usage, the system shall not stop running apps, and shall flag the overage (see LIM-RES-22 and LIM-RES-23).
 * **LIM-RES-16** While usage exceeds a total, the system shall refuse new deploys.
 * **LIM-RES-17** If a limit value is not positive, then the system shall reject it.
 * **LIM-RES-18** If a soft limit exceeds its hard limit, then the system shall reject it.
 * **LIM-RES-19** The system shall not support a soft CPU limit; CPU has a hard limit only, and Memory has both hard and soft.
+
+**Build containers.** An app is built in a separate, temporary container that needs far more than the app does while running.
+
+* **LIM-RES-20** The system shall not count the resources of a build container toward a user’s usage.
+* **LIM-RES-21** The system shall limit each build container to a fixed cap that the user cannot change.
+
+**Overage.** An overage is usage above a total, for example after the total is lowered (LIM-RES-15).
+
+* **LIM-RES-22** The system shall derive an overage from the current totals and usage each time it is needed, and shall not store it.
+* **LIM-RES-23** The [API](#api) shall report, for each resource, the amount by which usage exceeds the total, in the same call that reports limits and usage.
+* **LIM-RES-24** If a deploy or a change is refused because of a limit, then the [API](#api) shall return an error identifier that names which limit was hit.
+
+**Existing apps.** Apps deployed before per-app allocations existed have no setting, which LIM-RES-7 and LIM-RES-8 do not allow.
+
+* **LIM-RES-25** When Web Apps is upgraded to a version with per-app allocations, the system shall once, during the upgrade and not on first read, set the Memory of each existing app instance to the amount it has at that time.
+* **LIM-RES-26** When the upgrade in LIM-RES-25 runs, the system shall set the CPU of each existing app instance to the default for its [Adapter](#adapters), because CPU has not been limited until then and a limit must be positive (LIM-RES-17).
 
 #### Podman flags
 
