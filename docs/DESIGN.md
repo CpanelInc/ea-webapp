@@ -57,31 +57,54 @@ UIs, just like MCPs, will consume the [API](#api). First implementing in `meridi
 
 ## Limits
 
-Users cannot change their resource totals, their app count, or anything that sets them. Within their total, a user chooses how much each of their apps gets.
+Requirements in this section are written in [EARS](https://alistairmavin.com/ears/) (Easy Approach to Requirements Syntax). Each has a stable ID (e.g. `LIM-RES-4`) so code, tests, and Jira cases can cite it. In them, **the system** means Web Apps: the [API](#api) and the [UI](#ui)/[MCP](#mcp) clients acting through it. The templates used are:
+
+* Ubiquitous: _The system shall …_
+* Event-driven: _When \<trigger\>, the system shall …_
+* State-driven: _While \<state\>, the system shall …_
+* Optional feature: _Where \<feature is present\>, the system shall …_
+* Unwanted behavior: _If \<condition\>, then the system shall …_
+
+Prose that is not a requirement (rationale, background, the podman flag table) is kept as written and does not carry an ID. Open questions have no requirement until they are decided; they are collected under [Open questions](#open-questions).
+
+* **LIM-1** The system shall not allow a user to change their resource totals, their app count maximum, or anything that sets them.
+* **LIM-2** The system shall let a user choose, within their total, how much each of their apps gets.
+* **LIM-3** The system shall not apply limits per [App Type](#app-types); the system shall base limits only on the resources and ports an app uses.
 
 > **Note — these limits govern what our system does on a user’s behalf.** They’re the values the [API](#api)/[UI](#ui)/[MCP](#mcp) apply when deploying and managing an app through Web Apps. A user with normal shell access still has ordinary container operability outside of that — they can run an arbitrary image or container directly, just as they can today, and those aren’t bound by Web Apps’ limits. That’s expected container behavior, not a gap in this design; we’re noting it so the scope of the limits is clear. (And it may not even arise for WebPros Dashboard users if they can’t log into their cPanel account as a normal user.)
 
-There are no limits per [App Type](#app-types): the type does not matter, only the resources and ports an app uses.
-
 ### Resource limits
 
-The resources are **CPU** and **Memory**. Where a resource has both a hard and a soft limit, we support both, and each is tracked on its own: hard allocations count against the hard total, soft against the soft total.
+The resources are **CPU** and **Memory**.
 
-**Total per user.** Each level defaults to the one above it, so the effective total resolves in this precedence: **User → Global → Default**. A more specific level overrides a broader one and may set any value, higher or lower.
+* **LIM-RES-1** The system shall support limits on two resources: CPU and Memory.
+* **LIM-RES-2** Where a resource has both a hard and a soft limit, the system shall support both and track each on its own.
+* **LIM-RES-3** The system shall count hard allocations against the hard total and soft allocations against the soft total.
+
+**Total per user.** Each level defaults to the one above it. A more specific level overrides a broader one and may set any value, higher or lower.
 
 1. **Default** — the built-in total per user, shipped with Web Apps.
 1. **Global** — this server’s total per user.
 1. **User** — this user’s total, set on their WHM account package.
 
-**Allocation per app.** Every app _instance_ has its own CPU and Memory setting, which the user chooses from their remaining total. An app without a setting should never exist; if one does, it is a bug, not a state to handle with a fallback.
+* **LIM-RES-4** The system shall resolve a user’s effective total for each resource limit in the precedence User, then Global, then Default, using the first level that has a value.
+* **LIM-RES-5** Where a more specific level sets a total, the system shall use it whether it is higher or lower than the broader level’s.
 
-* **Usage** is the sum of the configured per-app settings, not measured consumption.
-* **Deploying** is allowed only when the app’s setting fits within the remaining total (total minus usage). Otherwise the deploy is refused.
-* **Changing** an app’s setting is allowed only when the new value fits within the remaining total, counting that app’s current allocation as available.
-* An allocation counts toward usage as soon as a deploy is requested, so queued or concurrent deploys cannot together exceed the total.
-* Deleting an app releases its allocation. A reservation made when a deploy is requested is released if that deploy fails or is cancelled.
-* **Lowering a total** below current usage does not stop running apps. The overage is flagged, and new deploys are blocked until usage fits within the total again.
-* Every value must be positive, and a soft limit may not exceed its hard limit.
+**Allocation per app.** Every app _instance_ has its own CPU and Memory setting, which the user chooses from their remaining total.
+
+* **LIM-RES-6** The system shall give every app instance its own CPU and Memory setting.
+* **LIM-RES-7** The system shall not create an app instance without a CPU and Memory setting.
+* **LIM-RES-8** The system shall not provide a fallback for an app instance that has no setting; such an app is a defect, not a state to handle.
+* **LIM-RES-9** The system shall calculate usage as the sum of the configured per-app settings, and shall not use measured consumption.
+* **LIM-RES-10** When a deploy is requested, if the app’s setting does not fit within the remaining total (total minus usage), then the system shall refuse the deploy.
+* **LIM-RES-11** When a change to an app’s setting is requested, if the new value does not fit within the remaining total, counting that app’s current allocation as available, then the system shall refuse the change.
+* **LIM-RES-12** When a deploy is requested, the system shall count the app’s allocation toward usage immediately, so that queued or concurrent deploys cannot together exceed the total.
+* **LIM-RES-13** When an app is deleted, the system shall release its allocation.
+* **LIM-RES-14** When a deploy fails or is cancelled, the system shall release the allocation reserved for it when it was requested.
+* **LIM-RES-15** When a total is lowered below current usage, the system shall not stop running apps, and shall flag the overage.
+* **LIM-RES-16** While usage exceeds a total, the system shall refuse new deploys.
+* **LIM-RES-17** If a limit value is not positive, then the system shall reject it.
+* **LIM-RES-18** If a soft limit exceeds its hard limit, then the system shall reject it.
 
 #### Podman flags
 
@@ -93,21 +116,31 @@ The resources are **CPU** and **Memory**. Where a resource has both a hard and a
 | Hard CPU | `--cpus` (shorthand for `--cpu-period` + `--cpu-quota`) | `cpu.max` — ceiling on CPU time | `cpu.cfs_quota_us` / `cpu.cfs_period_us` — ceiling on CPU time |
 | Soft CPU | `--cpu-shares` | `cpu.weight` — relative priority, converted from shares | `cpu.shares` — relative priority, default 1024 |
 
+* **LIM-ENF-1** When the system starts an app container, it shall apply the app’s limits using the podman flags in the table above.
+* **LIM-ENF-2** When the system applies a hard memory limit, it shall set `--memory-swap` equal to `--memory`.
+* **LIM-ENF-3** Where the host uses cgroup v2, the system shall set `MemoryLow` on the account’s user slice, matching the user’s soft memory total.
+* **LIM-ENF-4** While the host uses cgroup v1, the system shall not report limits on a rootless Web Apps container as applied.
+* **LIM-ENF-5** If a config the account controls contains any of the flags below, then ea-podman shall reject it, because they bypass the caps or set limits the admin didn’t:
+  * `--memory`, `--memory-swap`, `--memory-reservation`
+  * `--cpus`, `--cpu-period`, `--cpu-quota`, `--cpu-shares` / `-c`
+  * `--cgroup-parent`, `--cgroups=disabled`
+
 **Swap.** `--memory-swap` is set equal to `--memory` so a container cannot use swap beyond its memory cap; otherwise podman allows up to twice the cap in total. On cgroup v1 this requires kernel swap accounting; where it is unavailable, swap cannot be limited.
 
 **Hard limits** are absolute amounts, so summing them against a user’s total means exactly what it says, on either cgroup version.
 
 **Soft memory** protection is hierarchical on cgroup v2: a container’s `memory.low` is effective only up to the protection set on its parent cgroups. Enforcement therefore sets a root-side floor (`MemoryLow`) on the account’s user slice, matching the user’s soft total. On cgroup v1, the soft limit protects nothing; the kernel only uses it under system-wide memory pressure, reclaiming first from cgroups furthest over their soft limit.
 
-**Soft CPU** is a ratio, not an amount, on either cgroup version. Shares only divide contested CPU among siblings in the same parent cgroup, so a rootless container’s shares rank a user’s apps against each other, not against other accounts. Summing shares against a total does not correspond to a quantity of CPU. _Open question:_ drop soft CPU; keep it as a per-app priority not counted against a total; or express it in CPU units, convert it to shares internally, and accept that it only ranks a user’s own apps.
+**Soft CPU** is a ratio, not an amount, on either cgroup version. Shares only divide contested CPU among siblings in the same parent cgroup, so a rootless container’s shares rank a user’s apps against each other, not against other accounts. Summing shares against a total does not correspond to a quantity of CPU.
 
-**cgroup v1 hosts.** Rootless podman cannot apply resource limits on cgroup v1; it ignores them with a warning. Web Apps containers are rootless, so on v1 hosts none of these limits are enforced, and the API must not report them as applied. The v1 column applies only to rootful containers. _Open question:_ require cgroup v2 as a minimum; warn in WHM that limits aren’t enforced; or rely on CloudLinux LVE for account-wide limits.
+**cgroup v1 hosts.** Rootless podman cannot apply resource limits on cgroup v1; it ignores them with a warning. Web Apps containers are rootless, so on v1 hosts none of these limits are enforced, and the API must not report them as applied. The v1 column applies only to rootful containers.
 
-**Account-controlled config.** ea-podman must reject these flags in any config the account controls, because they bypass the caps or set limits the admin didn’t:
+#### Open questions
 
-* `--memory`, `--memory-swap`, `--memory-reservation`
-* `--cpus`, `--cpu-period`, `--cpu-quota`, `--cpu-shares` / `-c`
-* `--cgroup-parent`, `--cgroups=disabled`
+No requirement is written for these until they are decided.
+
+* **Soft CPU.** Drop soft CPU; keep it as a per-app priority not counted against a total; or express it in CPU units, convert it to shares internally, and accept that it only ranks a user’s own apps.
+* **cgroup v1 hosts.** Require cgroup v2 as a minimum; warn in WHM that limits aren’t enforced; or rely on CloudLinux LVE for account-wide limits.
 
 ### App count
 
@@ -117,14 +150,19 @@ App count doesn’t govern resources — the totals above do. It is limited only
 1. **Global** — this server’s maximum apps per user.
 1. **User** — this user’s maximum, set on their WHM account package.
 
-* A slot counts as used as soon as a deploy is requested.
-* Deleting an app releases its slot. A slot reserved for a deploy is released if that deploy fails or is cancelled.
-* **Lowering a maximum** below the current count does not stop running apps. New deploys are blocked until the count is back under it.
-* If the server’s port pool is exhausted, the deploy fails with a clear error even when the user is under their count.
+* **LIM-CNT-1** The system shall resolve a user’s maximum app count in the precedence User, then Global, then Default, using the first level that has a value.
+* **LIM-CNT-2** When a deploy is requested, the system shall count a slot as used immediately.
+* **LIM-CNT-3** When an app is deleted, the system shall release its slot.
+* **LIM-CNT-4** When a deploy fails or is cancelled, the system shall release the slot reserved for it.
+* **LIM-CNT-5** When a maximum is lowered below the current count, the system shall not stop running apps.
+* **LIM-CNT-6** While a user’s count is not under their maximum, the system shall refuse new deploys.
+* **LIM-CNT-7** If the server’s port pool is exhausted, then the system shall fail the deploy with a clear error, even when the user is under their count.
 
 ### Adapter recommendations
 
-Each [Adapter](#adapters) specifies a recommended minimum CPU and Memory for its [App Type](#app-types). If an app’s setting is below that minimum, or the remaining total can’t cover it, the user is warned. The recommendation is advice: it does not block a deploy that otherwise fits.
+* **LIM-REC-1** Each [Adapter](#adapters) shall specify a recommended minimum CPU and Memory for its [App Type](#app-types).
+* **LIM-REC-2** If an app’s setting is below the recommended minimum, or the remaining total cannot cover it, then the system shall warn the user.
+* **LIM-REC-3** The system shall not block, on account of a recommendation, a deploy that otherwise fits.
 
 ### Standalone limits
 
@@ -134,6 +172,10 @@ Set at a single level, no cascade.
    * A `/var/cpanel/feature-flags/NAME` file that the API package installs.
 1. **User** — Web Apps feature on or off for this user.
    * Driven by WHM account packages + feature lists.
+
+* **LIM-STD-1** The system shall resolve each standalone limit at a single level, with no cascade.
+* **LIM-STD-2** The API package shall install the `/var/cpanel/feature-flags/NAME` file, and the system shall treat Web Apps as available on a server only when that file is present.
+* **LIM-STD-3** The system shall treat Web Apps as available to a user only when the feature is on for that user, as set by WHM account packages and feature lists.
 
 ## Domains
 
