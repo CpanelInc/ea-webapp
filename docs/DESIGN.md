@@ -83,7 +83,7 @@ Memory amounts are in MiB (1,048,576 bytes), the unit podman’s `m` suffix and 
 
 * **LIM-RES-1** The system shall support limits on two resources: CPU and Memory.
 * **LIM-RES-2** Where a resource has both a hard and a soft limit, the system shall support both and track each on its own.
-* **LIM-RES-3** The system shall count hard allocations against the hard total and soft allocations against the soft total.
+* **LIM-RES-3** The system shall count hard allocations against the hard total and soft memory allocations against the soft memory total. CPU weights, the soft CPU limit, are not counted (LIM-RES-37).
 
 **Total per user.** Each level defaults to the one above it. A more specific level overrides a broader one and may set any value, higher or lower.
 
@@ -94,12 +94,12 @@ Memory amounts are in MiB (1,048,576 bytes), the unit podman’s `m` suffix and 
 * **LIM-RES-4** The system shall resolve a user’s effective total for each resource limit in the precedence User, then Global, then Default, using the first level that has a value.
 * **LIM-RES-5** Where a more specific level sets a total, the system shall use it whether it is higher or lower than the broader level’s.
 
-**Allocation per app.** Every app _instance_ has its own CPU and Memory setting, which the user chooses from their remaining total.
+**Allocation per app.** Every app _instance_ has its own CPU and Memory setting, which the user chooses from their remaining total. It also has a CPU weight, which the user chooses from five fixed values and which is not drawn from a total (LIM-RES-19, LIM-RES-37).
 
-* **LIM-RES-6** The system shall give every app instance its own CPU setting and its own Memory setting, where the Memory setting is a hard limit and a soft limit.
-* **LIM-RES-7** The system shall not create an app instance without a CPU and Memory setting.
+* **LIM-RES-6** The system shall give every app instance its own CPU setting, its own CPU weight, and its own Memory setting, where the Memory setting is a hard limit and a soft limit.
+* **LIM-RES-7** The system shall not create an app instance without a CPU setting, a CPU weight and a Memory setting.
 * **LIM-RES-8** The system shall not provide a fallback for an app instance that has no setting; such an app is a defect, not a state to handle.
-* **LIM-RES-9** The system shall calculate usage as the sum of the configured per-app settings, and shall not use measured consumption.
+* **LIM-RES-9** The system shall calculate usage as the sum of the configured per-app settings that have a total (LIM-RES-37), and shall not use measured consumption.
 * **LIM-RES-10** When a deploy is requested, if the app’s setting does not fit within the remaining total (total minus usage), then the system shall refuse the deploy.
 * **LIM-RES-11** When a change to an app’s setting is requested, if the new value does not fit within the remaining total, counting that app’s current allocation as available, then the system shall refuse the change.
 * **LIM-RES-12** When a deploy is requested, the system shall count the app’s allocation toward usage immediately, so that queued or concurrent deploys cannot together exceed the total.
@@ -110,9 +110,24 @@ Memory amounts are in MiB (1,048,576 bytes), the unit podman’s `m` suffix and 
 * **LIM-RES-16** While usage exceeds a total, the system shall refuse new deploys.
 * **LIM-RES-17** If a limit value is not positive, then the system shall reject it.
 * **LIM-RES-18** If an app’s soft memory limit exceeds its hard memory limit, or a user’s soft memory total exceeds their hard memory total, then the system shall reject it.
-* **LIM-RES-19** The system shall not support a soft CPU limit; CPU has a hard limit only, and Memory has both hard and soft.
+* **LIM-RES-19** The system shall support a soft CPU limit as a CPU weight, one of five values: `very_low`, `low`, `normal`, `high` and `very_high`. CPU therefore has a hard limit and a weight, and Memory has a hard limit and a soft limit.
 
 **Lock hold time.** The registry lock is per user, so it only makes one user’s own requests wait for each other. Today `stage()` holds it across a git clone or archive extraction bounded at 300 seconds, so a second request from the same user can wait that long. This is accepted. The new checks are cheap reads of the registry, and LIM-RES-34 must not add network or build work inside the lock.
+
+**CPU weight.** A CPU weight is a priority among a user’s own apps, not an amount of CPU. Each weight maps to a fixed `--cpu-shares` value, and each step doubles the one below it:
+
+| `cpu_weight` | `--cpu-shares` | Relative to `normal` |
+|---|---|---|
+| `very_low` | 256 | 1/4 |
+| `low` | 512 | 1/2 |
+| `normal` | 1024 | 1 |
+| `high` | 2048 | 2 |
+| `very_high` | 4096 | 4 |
+
+* **LIM-RES-35** The system shall map each CPU weight to the `--cpu-shares` value in the table above, and shall not let a user or administrator set any other share value.
+* **LIM-RES-36** When a deploy request gives no CPU weight, the system shall use `normal` and store it on the app instance.
+* **LIM-RES-37** The system shall not count CPU weights toward usage or against a total, and shall not give them a total, a cascade level or an overage.
+* **LIM-RES-38** If a CPU weight is not one of the five values, then the system shall reject it.
 
 **Build containers.** An app is built in a separate, temporary container that needs far more than the app does while running.
 
@@ -120,6 +135,7 @@ Memory amounts are in MiB (1,048,576 bytes), the unit podman’s `m` suffix and 
 * **LIM-RES-21** The system shall limit each build container to a fixed cap that the user cannot change.
 * **LIM-RES-32** The system shall run at most one build container per user at a time, so that the memory a user’s builds can use is bounded by one build cap, not by the number of apps.
 * **LIM-RES-33** If a user requests a deploy while one of their build containers is running, then the system shall refuse the deploy, before reserving any allocation or app slot, and return the error category `build_in_progress`.
+* **LIM-RES-39** The system shall run each build container at the `low` CPU weight, fixed and not changeable by the user, so that a build contests the user’s running apps for CPU at half the weight of a `normal` app.
 
 **Overage.** An overage is usage above a total, for example after the total is lowered (LIM-RES-15).
 
@@ -130,7 +146,7 @@ Memory amounts are in MiB (1,048,576 bytes), the unit podman’s `m` suffix and 
 **Existing apps.** Apps deployed before per-app allocations existed have no setting, which LIM-RES-7 and LIM-RES-8 do not allow.
 
 * **LIM-RES-25** When Web Apps is upgraded to a version with per-app allocations, the system shall once, during the upgrade and not on first read, set the Memory of each existing app instance to the amount it has at that time.
-* **LIM-RES-26** When the upgrade in LIM-RES-25 runs, the system shall set the CPU of each existing app instance to the default for its [Adapter](#adapters), because CPU has not been limited until then and a limit must be positive (LIM-RES-17).
+* **LIM-RES-26** When the upgrade in LIM-RES-25 runs, the system shall set the CPU of each existing app instance to the default for its [Adapter](#adapters), because CPU has not been limited until then and a limit must be positive (LIM-RES-17), and shall set its CPU weight to `normal` (LIM-RES-36).
 * **LIM-RES-27** The built-in Default totals shall be 2048 MiB of hard memory and 4.0 CPU, enough for the default maximum of 4 apps at 512 MiB and 1.0 CPU each. An adapter that sets no default CPU of its own shall default to 1.0 CPU.
 * **LIM-RES-28** If the upgrade in LIM-RES-25 leaves a user in overage, for example a package that allows 10 apps against the 2048 MiB Default, then the system shall leave their apps running and refuse new deploys under LIM-RES-16 until their usage is within the total; this is intended, not a defect.
 * **LIM-RES-29** When the upgrade in LIM-RES-25 finishes, the system shall log how many users it left in overage.
@@ -158,12 +174,13 @@ Memory amounts are in MiB (1,048,576 bytes), the unit podman’s `m` suffix and 
 | Hard memory (swap) | `--memory-swap`, set equal to `--memory` | `memory.swap.max` | `memory.memsw.limit_in_bytes` — needs kernel swap accounting |
 | Soft memory | `--memory-reservation` | `memory.low` — floor protected from reclaim | `memory.soft_limit_in_bytes` — reclaim target under memory pressure |
 | Hard CPU | `--cpus` (shorthand for `--cpu-period` + `--cpu-quota`) | `cpu.max` — ceiling on CPU time | `cpu.cfs_quota_us` / `cpu.cfs_period_us` — ceiling on CPU time |
+| Soft CPU (CPU weight) | `--cpu-shares` | `cpu.weight` - relative priority, converted from shares | `cpu.shares` - relative priority, default 1024 |
 
 * **LIM-ENF-1** When the system starts an app container, it shall apply the app’s limits for each resource whose limits can be enforced (LIM-ENF-4), using the podman flags in the table above.
 * **LIM-ENF-2** When the system applies a hard memory limit, it shall set `--memory-swap` equal to `--memory` where swap can be limited, meaning the user’s service manager has a `memory.swap.max` file. Where swap cannot be limited, the system shall pass `--memory` alone and note that swap is not capped, because podman refuses to start a container that is given `--memory-swap` without swap accounting.
 * **LIM-ENF-3** Where soft memory limits can be enforced (LIM-ENF-4), the system shall set `MemoryLow` on the account’s user slice, matching the user’s soft memory total.
-* **LIM-ENF-4** Where the host uses cgroup v2, the system shall treat a resource’s limits as enforceable when the controller for it is delegated to the user’s service manager (`user@<uid>.service`): the memory controller for Memory limits, the cpu controller for CPU limits. Soft memory limits are enforceable only when, in addition, the cgroup2 mount has `memory_recursiveprot`, because that is what lets the floor set on the user slice (LIM-ENF-3) reach containers below the intermediate cgroups. The system shall enforce limits that are enforceable and report each of hard memory, soft memory and CPU as enforced or not.
-* **LIM-ENF-4a** If a limit cannot be enforced, then the system shall not pass its flags, because podman ignores them with a warning on every start: `--memory` and `--memory-swap` for hard memory, `--memory-reservation` and `MemoryLow` for soft memory, and `--cpus` for CPU.
+* **LIM-ENF-4** Where the host uses cgroup v2, the system shall treat a resource’s limits as enforceable when the controller for it is delegated to the user’s service manager (`user@<uid>.service`): the memory controller for Memory limits, the cpu controller for CPU limits (the hard limit and the weight). Soft memory limits are enforceable only when, in addition, the cgroup2 mount has `memory_recursiveprot`, because that is what lets the floor set on the user slice (LIM-ENF-3) reach containers below the intermediate cgroups. The system shall enforce limits that are enforceable and report each of hard memory, soft memory and CPU as enforced or not.
+* **LIM-ENF-4a** If a limit cannot be enforced, then the system shall not pass its flags, because podman ignores them with a warning on every start: `--memory` and `--memory-swap` for hard memory, `--memory-reservation` and `MemoryLow` for soft memory, and `--cpus` and `--cpu-shares` for CPU.
 * **LIM-ENF-5** If a config the account controls contains any of the flags below, then ea-podman shall reject it (this is ea-podman’s work, tracked in CPANEL-57893, not the Web Apps plugin’s), because they bypass the caps or set limits the admin didn’t:
   * `--memory`, `--memory-swap`, `--memory-reservation`
   * `--cpus`, `--cpu-period`, `--cpu-quota`, `--cpu-shares` / `-c`
@@ -178,6 +195,7 @@ Memory amounts are in MiB (1,048,576 bytes), the unit podman’s `m` suffix and 
 * **LIM-ENF-13** The acknowledgement in LIM-ENF-8 shall apply to the whole server, and the system shall read it each time it checks whether Web Apps is available, not cache it from install time.
 * **LIM-ENF-14** While limits can be enforced for at least one resource (LIM-ENF-4), the system shall ignore the acknowledgement; if enforcement is later lost for both, the stored acknowledgement shall apply again without a new prompt.
 * **LIM-ENF-15** While Web Apps is unavailable under LIM-ENF-8, the system shall refuse Web Apps API calls and [UIs](#ui) and [MCPs](#mcp) shall hide the feature, and the system shall not stop apps that are already running.
+* **LIM-ENF-16** When a change to a deployed app’s CPU weight is accepted, the system shall record the new value in the container’s recorded start arguments, so that a recreate keeps it, and shall apply it to the running container with `podman update --cpu-shares` where CPU limits can be enforced (LIM-ENF-4). If the live update fails, the weight takes effect at the next recreate, and the system shall report that it has not yet taken effect.
 
 **Swap.** `--memory-swap` is set equal to `--memory` so a container cannot use swap beyond its memory cap; otherwise podman allows up to twice the cap in total. It requires kernel swap accounting, on cgroup v1 and on v2; where it is unavailable, swap cannot be limited, and Memory limits are still enforced for memory itself.
 
@@ -185,7 +203,7 @@ Memory amounts are in MiB (1,048,576 bytes), the unit podman’s `m` suffix and 
 
 **Soft memory** protection is hierarchical on cgroup v2: a container’s `memory.low` is effective only up to the protection set on its parent cgroups. Enforcement therefore sets a root-side floor (`MemoryLow`) on the account’s user slice, matching the user’s soft total. That floor reaches the containers below the intermediate cgroups only where the cgroup2 mount has `memory_recursiveprot`, which can be read from `/proc/self/mountinfo`. On cgroup v1, the soft limit protects nothing; the kernel only uses it under system-wide memory pressure, reclaiming first from cgroups furthest over their soft limit.
 
-**Soft CPU** is not supported. It is a ratio, not an amount, on either cgroup version (`--cpu-shares`, `cpu.weight` on v2, `cpu.shares` on v1). Shares only divide contested CPU among siblings in the same parent cgroup, so a rootless container’s shares rank a user’s apps against each other, not against other accounts. Summing shares against a total does not correspond to a quantity of CPU. Dropping it keeps CPU to one number per app, and what it would give is weak.
+**Soft CPU** is a ratio, not an amount, on either cgroup version (`--cpu-shares`, `cpu.weight` on v2, `cpu.shares` on v1). Shares only divide contested CPU among siblings in the same parent cgroup, so a rootless container’s weight ranks a user’s apps, and their build container, against each other, and only while they compete for CPU. A stopped app drops out of the ranking. A weight is therefore not a guarantee of any amount of CPU, and it gives no protection from other accounts. Summing shares against a total does not correspond to a quantity of CPU, so a weight has no total, and the user picks one of five fixed values instead of a raw share number (LIM-RES-35, LIM-RES-37). Like hard CPU, a weight applies only where the cpu controller is delegated (LIM-ENF-4).
 
 **cgroup v1 hosts.** Rootless podman cannot apply resource limits on cgroup v1; it ignores them with a warning. Web Apps containers are rootless, so on v1 hosts none of these limits are enforced, and the API must not report them as applied. The v1 column applies only to rootful containers. Web Apps is still allowed on such hosts, but only after the administrator explicitly acknowledges that limits are not enforced (LIM-ENF-8). The administrator can get enforcement by moving the host to cgroup v2, either by a distro that defaults to it or, on EL8, by a kernel boot parameter and a reboot. Cgroup v2 alone is not enough: the controller for each resource (memory for Memory, cpu for CPU) must also be delegated to the user’s service manager (`user@<uid>.service`). The cpu controller in particular is often not delegated, so a v2 host can enforce Memory limits and not CPU limits.
 
@@ -209,7 +227,7 @@ App count doesn’t govern resources — the totals above do. It is limited only
 
 ### Adapter recommendations
 
-* **LIM-REC-1** Each [Adapter](#adapters) shall specify a recommended minimum CPU and Memory for its [App Type](#app-types).
+* **LIM-REC-1** Each [Adapter](#adapters) shall specify a recommended minimum CPU and Memory for its [App Type](#app-types), and shall not specify a CPU weight.
 * **LIM-REC-2** If an app’s setting is below the recommended minimum, or the remaining total cannot cover it, then the system shall warn the user.
 * **LIM-REC-3** The system shall not block, on account of a recommendation, a deploy that otherwise fits.
 
@@ -286,10 +304,27 @@ Each criterion cites the requirements it verifies. Values match the [Examples](#
    * GIVEN an enforced host and a user with a 1024 MiB soft memory total
    * WHEN an app starts with a 512 MiB hard and 256 MiB soft memory limit
    * THEN podman runs with `--memory=512m --memory-swap=512m --memory-reservation=256m`, and `MemoryLow` on the user’s slice is 1024 MiB.
-1. **Soft CPU** (LIM-RES-19)
-   * GIVEN a request that sets a soft CPU limit
+1. **CPU weight** (LIM-RES-19, LIM-RES-35, LIM-RES-36, LIM-RES-37, LIM-RES-38)
+   * GIVEN a user with 0.5 CPU remaining
+   * WHEN they deploy an app with 0.5 CPU and `cpu_weight` of `high`
+   * THEN the deploy is accepted, the app stores `high`, the remaining CPU becomes 0.0, and the weight is not counted anywhere in usage or overage.
+   * GIVEN a deploy that gives no `cpu_weight`
+   * WHEN it is accepted
+   * THEN the app stores `normal`.
+   * GIVEN a request with `cpu_weight` of `turbo`
    * WHEN it is submitted
-   * THEN it is rejected.
+   * THEN it is rejected and nothing is allocated.
+1. **CPU weight on a running app** (LIM-ENF-16)
+   * GIVEN an enforced host and a running app at `normal`
+   * WHEN the user changes it to `very_high`
+   * THEN the recorded start arguments hold `--cpu-shares=4096`, and the running container is updated to 4096 shares.
+   * GIVEN the live update fails
+   * WHEN the change is accepted
+   * THEN the recorded value is still saved, the response reports that the weight has not yet taken effect, and it applies at the next recreate.
+1. **Build container weight** (LIM-RES-39)
+   * GIVEN an enforced host
+   * WHEN an app is built
+   * THEN the build container runs with `--cpu-shares=512`, whatever weight the app has.
 1. **App count** (LIM-CNT-1, LIM-CNT-6, LIM-CNT-7)
    * GIVEN a user with a maximum of 4 apps and 4 deployed
    * WHEN they deploy another
@@ -300,7 +335,7 @@ Each criterion cites the requirements it verifies. Values match the [Examples](#
 1. **Enforced host** (LIM-ENF-1, LIM-ENF-2, LIM-ENF-4, LIM-ENF-9)
    * GIVEN cgroup v2 with the cpu and memory controllers delegated to the user’s service manager
    * WHEN an app container starts with 512 MiB and 0.5 CPU
-   * THEN podman runs with `--memory=512m --memory-swap=512m --cpus=0.5`, and the API reports hard memory, soft memory and CPU as enforced.
+   * THEN podman runs with `--memory=512m --memory-swap=512m --cpus=0.5 --cpu-shares=1024` (no weight was given, so `normal`), and the API reports hard memory, soft memory and CPU as enforced.
 1. **No swap accounting** (LIM-ENF-2)
    * GIVEN cgroup v2 with the memory controller delegated and no `memory.swap.max` for the user
    * WHEN an app container starts with 512 MiB
@@ -312,7 +347,7 @@ Each criterion cites the requirements it verifies. Values match the [Examples](#
 1. **Partly enforced host** (LIM-ENF-4, LIM-ENF-4a, LIM-ENF-7, LIM-ENF-8, LIM-ENF-9)
    * GIVEN cgroup v2 with the memory controller delegated and the cpu controller not
    * WHEN an app container starts with 512 MiB and 0.5 CPU
-   * THEN podman runs with `--memory=512m --memory-swap=512m` and no `--cpus`, Web Apps is available without acknowledgement, the API reports hard and soft memory as enforced and CPU as not enforced, and the administrator is warned about CPU.
+   * THEN podman runs with `--memory=512m --memory-swap=512m` and no `--cpus` or `--cpu-shares`, Web Apps is available without acknowledgement, the API reports hard and soft memory as enforced and CPU as not enforced, and the administrator is warned about CPU.
 1. **Unenforced host** (LIM-ENF-6, LIM-ENF-8, LIM-ENF-9)
    * GIVEN a cgroup v1 host and no administrator acknowledgement
    * WHEN anyone asks whether Web Apps is available
@@ -341,7 +376,7 @@ Each criterion cites the requirements it verifies. Values match the [Examples](#
 1. **Upgrade backfill** (LIM-RES-25, LIM-RES-26, LIM-RES-27)
    * GIVEN an existing app with no allocation, using 512 MiB
    * WHEN Web Apps is upgraded
-   * THEN its Memory is set to 512 MiB and its CPU to its adapter’s default, during the upgrade itself.
+   * THEN its Memory is set to 512 MiB, its CPU to its adapter’s default and its CPU weight to `normal`, during the upgrade itself.
 1. **Upgrade into overage** (LIM-RES-16, LIM-RES-28, LIM-RES-29)
    * GIVEN a user whose package allows 10 apps, all deployed at 512 MiB, and the Default memory total of 2048 MiB
    * WHEN Web Apps is upgraded
@@ -354,9 +389,10 @@ Concrete values for a user whose effective totals are **2048 MiB hard memory**, 
 **Happy path: deploy fits** (LIM-RES-10, LIM-RES-12)
 
 ```
-input:  deploy { type: "nodejs", memory_mb: 512, soft_memory_mb: 256, cpu: 0.5 }
-output: { status: 1, data: { app: "C", memory_mb: 512, soft_memory_mb: 256, cpu: 0.5 } }
+input:  deploy { type: "nodejs", memory_mb: 512, soft_memory_mb: 256, cpu: 0.5, cpu_weight: "high" }
+output: { status: 1, data: { app: "C", memory_mb: 512, soft_memory_mb: 256, cpu: 0.5, cpu_weight: "high" } }
 after:  usage 2048 / 2048 MiB hard, 1024 / 1024 MiB soft, 2.0 / 2.0 CPU, overage { memory_mb: 0, cpu: 0 }
+        (the weight is not counted; podman runs with --cpu-shares=2048)
 ```
 
 **Error case: deploy does not fit** (LIM-RES-10, LIM-RES-24)
@@ -399,8 +435,8 @@ after:  nothing deployed; the WHM warning (LIM-ENF-7) links to the documentation
 
 * A resource’s limits are enforced only on cgroup v2 with its controller (memory or cpu) delegated to the user’s service manager, and soft memory also needs `memory_recursiveprot` on the cgroup2 mount (LIM-ENF-4). Web Apps containers are rootless, and rootless podman ignores limits on cgroup v1.
 * Usage is the sum of configured per-app settings, never measured consumption (LIM-RES-9).
-* Every app has a CPU and Memory setting. There is no fallback for one without (LIM-RES-8).
-* CPU has a hard limit only. Memory has hard and soft. Every limit value is positive and a soft limit never exceeds its hard limit (LIM-RES-17, LIM-RES-18, LIM-RES-19).
+* Every app has a CPU setting, a CPU weight and a Memory setting. There is no fallback for one without (LIM-RES-8).
+* CPU has a hard limit and a weight. Memory has hard and soft. The weight is one of five fixed values, is not counted against a total, and ranks only a user’s own apps and their build container (LIM-RES-19, LIM-RES-35, LIM-RES-37). Every limit value is positive and a soft memory limit never exceeds its hard limit (LIM-RES-17, LIM-RES-18).
 * Users cannot change their totals or app count maximum (LIM-1). Build container caps are fixed (LIM-RES-21), and a user runs at most one build at a time (LIM-RES-32).
 * The [API](#api) has no [App Type](#app-types) specific logic, so limits cannot differ by App Type (LIM-3).
 * App count exists only because the port pool is shared by every account on the server (LIM-CNT-7).
@@ -415,7 +451,8 @@ after:  nothing deployed; the WHM warning (LIM-ENF-7) links to the documentation
 * Pids limiting.
 * General account disk space and database limits (owned outside this plugin).
 * WHM controls for setting limits (CPANEL-56151).
-* Soft CPU (LIM-RES-19).
+* A soft CPU total, or user-chosen or administrator-chosen share values. A CPU weight is one of five fixed values and is not counted (LIM-RES-19, LIM-RES-35, LIM-RES-37).
+* Protecting one account’s CPU from another’s. A weight only ranks a user’s own apps.
 * Limits on containers a user runs directly from the shell, outside Web Apps (see the Note above).
 * CloudLinux LVE account-wide limits. It is not a Web Apps limit; it is only mentioned in the public documentation page (LIM-ENF-10).
 * Rootful containers.
