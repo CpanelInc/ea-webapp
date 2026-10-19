@@ -147,7 +147,7 @@ Memory amounts are in MiB (1,048,576 bytes), the unit podman’s `m` suffix and 
 
 **Existing apps.** Apps deployed before per-app allocations existed have no setting, which LIM-RES-7 and LIM-RES-8 do not allow.
 
-* **LIM-RES-25** When Web Apps is upgraded to a version with per-app allocations, the system shall once, during the upgrade and not on first read, set the Memory of each existing app instance to the amount it has at that time.
+* **LIM-RES-25** When Web Apps is upgraded to a version with per-app allocations, the system shall once, during the upgrade and not on first read, set the Memory of each existing app instance to the amount it has at that time and its soft memory to half that amount, rounded down to a whole MiB, matching the ratio of the Default totals (LIM-RES-27).
 * **LIM-RES-26** When the upgrade in LIM-RES-25 runs, the system shall set the CPU of each existing app instance to the default for its [Adapter](#adapters), because CPU has not been limited until then and a limit must be positive (LIM-RES-17), and shall record `--cpu-shares=1024` (`normal`) in the start arguments of its container, which takes effect at the next recreate (LIM-RES-36).
 * **LIM-RES-27** The built-in Default totals shall be 2048 MiB of hard memory, 1024 MiB of soft memory and 4.0 CPU, enough for the default maximum of 4 apps at 512 MiB hard, 256 MiB soft and 1.0 CPU each. The Default soft memory total is always set, so the cascade in LIM-RES-4 always ends in a value for every resource. An adapter that sets no default CPU of its own shall default to 1.0 CPU.
 * **LIM-RES-28** If the upgrade in LIM-RES-25 leaves a user in overage, for example a package that allows 10 apps against the 2048 MiB Default, then the system shall leave their apps running and refuse new deploys under LIM-RES-16 until their usage is within the total; this is intended, not a defect.
@@ -198,6 +198,7 @@ Memory amounts are in MiB (1,048,576 bytes), the unit podman’s `m` suffix and 
 * **LIM-ENF-14** While limits can be enforced for at least one resource (LIM-ENF-4), the system shall ignore the acknowledgement; if enforcement is later lost for both, the stored acknowledgement shall apply again without a new prompt.
 * **LIM-ENF-15** While Web Apps is unavailable under LIM-ENF-8, the system shall refuse Web Apps API calls and [UIs](#ui) and [MCPs](#mcp) shall hide the feature, and the system shall not stop apps that are already running.
 * **LIM-ENF-16** When a change to a deployed app’s CPU weight through the [API](#api) is accepted, the system shall remove every `--cpu-shares` and `-c` entry from the container’s recorded start arguments, including one the user added, write a single `--cpu-shares` entry with the new value, so that a recreate keeps it, and shall apply it to the running container with `podman update --cpu-shares` where CPU limits can be enforced (LIM-ENF-4). If the live update fails, the weight takes effect at the next recreate, and the system shall report that it has not yet taken effect.
+* **LIM-ENF-17** When a change to a deployed app’s hard memory, soft memory or hard CPU is accepted (LIM-RES-11), the system shall record it and shall apply it when the container is next recreated from its recorded start arguments, and shall not apply it to the running container. The system shall report that the change has not yet taken effect. A plain stop and start of the same container does not count as a recreate.
 
 **Swap.** `--memory-swap` is set equal to `--memory` so a container cannot use swap beyond its memory cap; otherwise podman allows up to twice the cap in total. It requires kernel swap accounting, on cgroup v1 and on v2; where it is unavailable, swap cannot be limited, and Memory limits are still enforced for memory itself.
 
@@ -280,6 +281,10 @@ Each criterion cites the requirements it verifies. Values match the [Examples](#
    * GIVEN an app with 512 MiB and 512 MiB remaining in the total
    * WHEN the user raises it to 1024 MiB
    * THEN the change is accepted, because the app’s own 512 MiB counts as available; raising it to 1280 MiB is refused.
+1. **Memory change on a running app** (LIM-RES-11, LIM-ENF-17)
+   * GIVEN a running app using 200 MiB with a 512 MiB hard memory limit
+   * WHEN the user lowers its hard memory to 128 MiB and the change fits the rules
+   * THEN the change is accepted and recorded, the response reports that it has not yet taken effect, and the running container keeps its 512 MiB limit and keeps running until it is recreated.
 1. **Lowered total** (LIM-RES-15, LIM-RES-16, LIM-RES-22, LIM-RES-23)
    * GIVEN usage of 2048 MiB
    * WHEN the user’s total is lowered to 1024 MiB
@@ -388,7 +393,7 @@ Each criterion cites the requirements it verifies. Values match the [Examples](#
 1. **Upgrade backfill** (LIM-RES-25, LIM-RES-26, LIM-RES-27)
    * GIVEN an existing app with no allocation, using 512 MiB
    * WHEN Web Apps is upgraded
-   * THEN its Memory is set to 512 MiB, its CPU to its adapter’s default and `--cpu-shares=1024` (`normal`) in its container’s start arguments, during the upgrade itself.
+   * THEN its Memory is set to 512 MiB, its soft memory to 256 MiB, its CPU to its adapter’s default and `--cpu-shares=1024` (`normal`) in its container’s start arguments, during the upgrade itself.
 1. **Upgrade into overage** (LIM-RES-16, LIM-RES-28, LIM-RES-29)
    * GIVEN a user whose package allows 10 apps, all deployed at 512 MiB, and the Default memory total of 2048 MiB
    * WHEN Web Apps is upgraded
